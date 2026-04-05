@@ -12,9 +12,9 @@ use std::{f64::consts::PI, time::Instant};
 use crossterm::style::Color;
 use glam::Vec2;
 
-use crate::GRADIENTS;
+use crate::{GRADIENTS, get_gradient};
 use crate::anim::{Animation, Cell, Cursor, Frame};
-use crate::anim::perlin::Gradient;
+use crate::anim::Gradient;
 
 const NUM_AGENTS: usize = 1500;
 
@@ -58,7 +58,7 @@ impl Animation for SlimeMold {
 			.unwrap_or(toml::Value::String("aurora".to_string()));
 		let gradient_name = gradient_name.as_str().unwrap_or("aurora");
 
-		let gradient = GRADIENTS.get(gradient_name).cloned().unwrap_or(Gradient::aurora());
+		let gradient = get_gradient(gradient_name).unwrap_or(Gradient::aurora());
 		self.gradient = gradient;
 	}
 	fn init(&mut self, initial: Frame) {

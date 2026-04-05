@@ -1,4 +1,4 @@
-use std::f64::consts::PI;
+use std::{f64::consts::PI, time::Instant};
 
 use crossterm::style::Color;
 
@@ -14,11 +14,12 @@ fn modulo(n: i32, m: i32) -> usize {
 	(((n % m) + m) % m) as usize
 }
 
-#[derive(Debug,Default,Clone)]
+#[derive(Debug,Clone)]
 pub struct Saturn {
 	framebuf: Vec<u8>, // palette indices
 	palette: Vec<[u8; 3]>, // current palette (mutated by cycling)
 	bg_index: usize,
+	bg_indexes: Vec<usize>, // user-configured list of background indices to choose from (if empty, all are used)
 	effect_index: usize,
 	data: SaturnBgData,
 	orig: Frame,
@@ -31,21 +32,27 @@ pub struct Saturn {
 	scroll_x: u32,
 	scroll_y: u32,
 	anim_lifetime: f64, // seconds before re-rolling animation
-	anim_count: usize,
+	last_reroll: Instant,
 	tick: usize
+}
+
+impl Default for Saturn {
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 impl Saturn {
 	const SPEED_MOD: u32 = 128;
 	pub fn new() -> Self {
 		let data = SaturnBgData::default();
-		Self::from_data(data)
+		Self::from_data(data, true)
 	}
-	pub fn from_data(data: SaturnBgData) -> Self {
-		let valid_indices = data.valid_indices();
-		let bg_index = valid_indices[rand::random_range::<usize, std::ops::Range<usize>>(0..valid_indices.len())];
+	pub fn from_data(data: SaturnBgData, no_giygas: bool) -> Self {
+		let valid_indices = data.valid_indices(no_giygas);
+		let bg_index = valid_indices[rand::random_range(0..valid_indices.len())];
 		//let bg_index = 302;
-		let effect_index = rand::random_range::<usize, std::ops::Range<usize>>(0..4);
+		let effect_index = rand::random_range(0..4);
 		let framebuf = data.get_framebuffer(bg_index);
 		let palette = data.get_palette(bg_index);
 		Self {
@@ -57,30 +64,75 @@ impl Saturn {
 			speed_y: data.backgrounds[bg_index].movement[1],
 			data,
 			anim_lifetime: 20.0,
+			last_reroll: Instant::now(),
 			no_giygas: true,
-			..Default::default()
+			bg_indexes: Vec::new(),
+			orig: Frame::default(),
+			interm: Frame::default(),
+			rows: 0,
+			cols: 0,
+			scroll_x: 0,
+			scroll_y: 0,
+			tick: 0
 		}
 	}
-}
 
-impl Animation for Saturn {
-	fn configure(&mut self, config: &toml::Value) {
-		let Some(config) = config.get("saturn") else { return };
-		self.anim_lifetime = config.get("lifetime")
-			.unwrap_or(&toml::Value::Float(20.0)).as_float().unwrap_or(20.0);
-		self.bg_index = config.get("bg_index")
-			.unwrap_or(&toml::Value::Integer(self.bg_index as i64)).as_integer().unwrap_or(self.bg_index as i64) as usize;
-		self.no_giygas = config.get("no_giygas")
-			.unwrap_or(&toml::Value::Boolean(true)).as_bool().unwrap_or(true);
-	}
-	fn init(&mut self, initial: Frame) {
-		let valid_indices = self.data.valid_indices();
-		self.bg_index = valid_indices[rand::random_range::<usize, std::ops::Range<usize>>(0..valid_indices.len())];
-		self.effect_index = rand::random_range::<usize, std::ops::Range<usize>>(0..4);
+	/// Roll a random background index and construct the relevant fields
+	pub fn reroll(&mut self) {
+		let mut valid = self.data.valid_indices(self.no_giygas);
+		if !self.bg_indexes.is_empty() {
+			valid.retain(|idx| self.bg_indexes.contains(idx))
+		}
+		self.bg_index = valid[rand::random_range(0..valid.len())];
 		self.framebuf = self.data.get_framebuffer(self.bg_index);
 		self.palette = self.data.get_palette(self.bg_index);
 		self.speed_x = self.data.backgrounds[self.bg_index].movement[0];
+		self.scroll_x = 0;
 		self.speed_y = self.data.backgrounds[self.bg_index].movement[1];
+		self.scroll_y = 0;
+		self.effect_index = rand::random_range(0..4);
+	}
+
+	/// Set the background index to a specific value, and construct the relevant fields
+	/// This method ignores filtering by `bg_indexes` and `no_giygas`
+	/// It's up to the caller to decide whether or not the index is valid
+	pub fn set_index(&mut self, idx: usize) {
+		self.bg_index = idx;
+		self.framebuf = self.data.get_framebuffer(self.bg_index);
+		self.palette = self.data.get_palette(self.bg_index);
+		self.speed_x = self.data.backgrounds[self.bg_index].movement[0];
+		self.scroll_x = 0;
+		self.speed_y = self.data.backgrounds[self.bg_index].movement[1];
+		self.scroll_y = 0;
+		self.effect_index = rand::random_range(0..4);
+	}
+}
+impl Animation for Saturn {
+	fn configure(&mut self, config: &toml::Value) {
+		let Some(config) = config.get("saturn") else { return };
+
+		self.anim_lifetime = config.get("lifetime")
+			.unwrap_or(&toml::Value::Float(20.0)).as_float().unwrap_or(20.0);
+
+		self.bg_indexes = config.get("bg_indexes")
+			.and_then(|v| v.as_array())
+			.map(|arr| arr.iter().filter_map(|v| v.as_integer().map(|i| i as usize)).collect())
+			.unwrap_or_default();
+
+		let old_no_giygas = self.no_giygas;
+		self.no_giygas = config.get("no_giygas")
+			.unwrap_or(&toml::Value::Boolean(true)).as_bool().unwrap_or(true);
+
+		if !self.no_giygas && (self.no_giygas != old_no_giygas) {
+			self.reroll();
+		}
+
+		if let Some(idx) = config.get("bg_index").and_then(|v| v.as_integer()) {
+			self.set_index(idx as usize);
+		}
+	}
+	fn init(&mut self, initial: Frame) {
+		self.reroll();
 
 		let (rows,cols) = initial.dims().unwrap_or((0,0));
 		self.orig = initial.clone();
@@ -90,17 +142,14 @@ impl Animation for Saturn {
 	}
 
 	fn update(&mut self, dt: std::time::Duration) -> Frame {
-		log::debug!("current animation has been running for {} seconds", dt.as_secs_f64());
-		log::debug!("current animation lifetime is {} seconds", self.anim_lifetime);
-		log::debug!("current animation count is {}", self.anim_count);
-		log::debug!("dt.as_secs_f64() % self.anim_lifetime = {}", dt.as_secs_f64() % self.anim_lifetime);
-		//if (dt.as_secs_f64() % self.anim_lifetime).floor() as usize > self.anim_count {
-			//log::debug!("re-rolling animation");
-			//// re-roll animation
-			//let frame = self.initial_frame();
-			//self.init(frame);
-			//self.anim_count += 1;
-		//}
+		log::debug!("{} - {} = {}", dt.as_secs_f64(), self.last_reroll.elapsed().as_secs_f64(), dt.as_secs_f64() - self.last_reroll.elapsed().as_secs_f64());
+		if self.anim_lifetime > 0.0 && self.last_reroll.elapsed().as_secs_f64() > self.anim_lifetime {
+			log::debug!("re-rolling animation");
+			// re-roll animation
+			let frame = self.initial_frame();
+			self.init(frame);
+			self.last_reroll = Instant::now();
+		}
 
 		let Frame(ref cells) = self.orig;
 

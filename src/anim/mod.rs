@@ -2,7 +2,10 @@ use std::{fmt::Display, hash::{DefaultHasher, Hash, Hasher}, io::{Stdout, Write}
 use bitflags::bitflags;
 
 use crossterm::{cursor, execute, queue, style::{Color, Stylize}, terminal};
-use glam::Vec2;
+use glam::{Vec2, Vec3};
+use toml::Value;
+
+use crate::pull_seed_content;
 
 pub mod saturn;
 pub mod slime;
@@ -11,6 +14,126 @@ pub mod perlin;
 pub mod collapse;
 pub mod maelstrom;
 pub mod conway;
+
+#[derive(Clone, Debug)]
+pub struct Gradient {
+	pub bg: Option<Color>,
+	pub stops: Vec<Vec3>
+}
+
+impl Gradient {
+	#[allow(clippy::get_first)]
+	pub fn from_value(val: &Value) -> anyhow::Result<Self> {
+		let Some(cfg) = val.as_table() else {
+			anyhow::bail!("Gradient config must be a table");
+		};
+		let bg = cfg.get("bg").and_then(|bg| bg.as_array()).cloned().unwrap_or({
+			vec![
+				Value::Integer(0),
+				Value::Integer(0),
+				Value::Integer(0),
+			]
+		});
+
+		let Value::Integer(r) = bg.get(0).unwrap_or(&Value::Integer(0)) else {
+			anyhow::bail!("Gradient bg must be an array of 3 integers");
+		};
+		let Value::Integer(g) = bg.get(1).unwrap_or(&Value::Integer(0)) else {
+			anyhow::bail!("Gradient bg must be an array of 3 integers");
+		};
+		let Value::Integer(b) = bg.get(2).unwrap_or(&Value::Integer(0)) else {
+			anyhow::bail!("Gradient bg must be an array of 3 integers");
+		};
+		let bg = Color::Rgb { r: *r as u8, g: *g as u8, b: *b as u8 };
+
+		let Some(stops_cfg) = cfg.get("stops").and_then(|s| s.as_array()) else {
+			anyhow::bail!("Gradient config must have a stops array");
+		};
+
+		let mut stops = vec![];
+		for stop in stops_cfg {
+			let Value::Array(stop) = stop else {
+				anyhow::bail!("Gradient stops must be arrays of 3 integers");
+			};
+
+			let Value::Integer(r) = stop.get(0).unwrap_or(&Value::Integer(0)) else {
+				anyhow::bail!("Gradient stops must be arrays of 3 integers");
+			};
+			let Value::Integer(g) = stop.get(1).unwrap_or(&Value::Integer(0)) else {
+				anyhow::bail!("Gradient stops must be arrays of 3 integers");
+			};
+			let Value::Integer(b) = stop.get(2).unwrap_or(&Value::Integer(0)) else {
+				anyhow::bail!("Gradient stops must be arrays of 3 integers");
+			};
+			stops.push(Vec3 { x: *r as f32, y: *g as f32, z: *b as f32 });
+		}
+
+		Ok(Self { bg: Some(bg), stops })
+	}
+	pub fn ocean() -> Self {
+		Gradient {
+			bg: Some(Color::Rgb { r: 0, g: 0, b: 20 }),
+			stops: vec![
+				Vec3 { x: 0.0, y: 0.0, z: 50.0 },
+				Vec3 { x: 0.0, y: 120.0, z: 200.0 },
+				Vec3 { x: 200.0, y: 240.0, z: 255.0 }
+			]
+		}
+	}
+	pub fn fire() -> Self {
+		Gradient {
+			bg: Some(Color::Rgb { r: 10, g: 0, b: 0 }),
+			stops: vec![
+				Vec3 { x: 20.0, y: 0.0, z: 0.0 },
+				Vec3 { x: 200.0, y: 30.0, z: 0.0 },
+				Vec3 { x: 255.0, y: 150.0, z: 0.0 },
+				Vec3 { x: 255.0, y: 255.0, z: 100.0 },
+			]
+		}
+	}
+	pub fn vapor() -> Self {
+		Gradient {
+			bg: Some(Color::Rgb { r: 15, g: 0, b: 30 }),
+			stops: vec![
+				Vec3 { x: 40.0, y: 0.0, z: 80.0 },
+				Vec3 { x: 200.0, y: 0.0, z: 150.0 },
+				Vec3 { x: 255.0, y: 100.0, z: 200.0 },
+				Vec3 { x: 0.0, y: 255.0, z: 255.0 },
+			]
+		}
+	}
+	pub fn mono() -> Self {
+		Gradient {
+			bg: Some(Color::Rgb { r: 0, g: 0, b: 0 }),
+			stops: vec![
+				Vec3 { x: 20.0, y: 20.0, z: 20.0 },
+				Vec3 { x: 255.0, y: 255.0, z: 255.0 },
+			]
+		}
+	}
+	pub fn aurora() -> Self {
+		Gradient {
+			bg: Some(Color::Rgb { r: 0, g: 0, b: 15 }),
+			stops: vec![
+				Vec3 { x: 0.0, y: 0.0, z: 40.0 },
+				Vec3 { x: 0.0, y: 200.0, z: 100.0 },
+				Vec3 { x: 0.0, y: 150.0, z: 200.0 },
+				Vec3 { x: 150.0, y: 0.0, z: 200.0 },
+			]
+		}
+	}
+	pub fn sample(&self, t: f32) -> Color {
+		let t = t.clamp(0.0, 1.0);
+		let segments = (self.stops.len() - 1) as f32;
+		let scaled = t * segments;
+		let i = (scaled as usize).min(self.stops.len() - 2);
+		let local_t = scaled - i as f32;
+		let c = self.stops[i].lerp(self.stops[i + 1], local_t);
+		Color::Rgb { r: c.x as u8, g: c.y as u8, b: c.z as u8 }
+	}
+}
+
+
 
 fn braille_texture() -> [char; 256] {
 	let mut chars: [(char, u32); 256] = [(char::default(), 0); 256];
@@ -101,9 +224,13 @@ impl Frame {
 		frame
 	}
 	pub fn seeded() -> Self {
-		let mut command = std::process::Command::new("man");
-		command.arg("man");
-		Frame::from_command(command)
+		let content = pull_seed_content();
+		let (cols,rows) = crossterm::terminal::size().unwrap_or((80, 24));
+		let mut builder = FrameBuilder::new(cols as usize, rows as usize);
+		builder.feed_bytes(content.as_bytes());
+		let mut frame = builder.build();
+		frame.resize(cols as usize, rows as usize);
+		frame
 	}
 	pub fn from_command(mut command: std::process::Command) -> Self {
 		let (cols,rows) = crossterm::terminal::size().unwrap_or((80, 24));
@@ -284,8 +411,8 @@ impl vte::Perform for FrameBuilder {
 
 pub struct Animator {
 	animation: Box<dyn Animation>,
-	config: toml::Value,
 	animation_time: f32, // time in seconds before the animation is forced to end.
+	config: toml::Value,
 	last_frame: Option<Frame>,
 	out_channel: Stdout,
 	start: Instant
@@ -295,30 +422,35 @@ impl Animator {
 	const TARGET_FRAME_RATE: u64 = 24;
 	pub const WAIT_TIME: u64 = 3;
 
-	pub fn new(mut animation: Box<dyn Animation>, config: toml::Value) -> Self {
+	pub fn new(mut animation: Box<dyn Animation>, config: &toml::Value) -> Self {
 		let frame = animation.initial_frame();
+		let animation_time = config.get("animation_time").and_then(|t| t.as_float()).unwrap_or(0.0) as f32;
 		log::debug!("Initial frame dimensions: {:?}", frame.dims());
-		log::debug!("Initial frame content:\n{}", frame.0.iter().map(|row| row.iter().map(|cell| cell.ch).collect::<String>()).collect::<Vec<_>>().join("\n"));
 		animation.init(frame);
-		animation.configure(&config);
+		animation.configure(config);
 		Self {
 			animation,
-			animation_time: 0.0,
-			config,
+			animation_time,
+			config: config.clone(),
 			last_frame: None,
 			out_channel: std::io::stdout(),
 			start: Instant::now()
 		}
 	}
 
-	pub fn play(&mut self) {
+	pub fn play(&mut self) -> bool {
 		{
 			let mut stdout = std::io::stdout();
 			execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide).unwrap();
+			terminal::enable_raw_mode().unwrap();
 		}
 		let (mut last_cols, mut last_rows) = crossterm::terminal::size().unwrap_or((80, 24));
 		loop {
 			let tick_start = Instant::now();
+			if self.config.get("screensaver_mode").and_then(|v| v.as_bool()).unwrap_or(false)
+			&& crossterm::event::poll(Duration::ZERO).unwrap_or(false) {
+				return false
+			}
 
 			let (cols, rows) = crossterm::terminal::size().unwrap_or((last_cols, last_rows));
 			if cols != last_cols || rows != last_rows {
@@ -344,6 +476,8 @@ impl Animator {
 				break;
 			}
 		}
+
+		true
 	}
 
 	fn render(&mut self, frame: Frame) {

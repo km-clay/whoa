@@ -7,6 +7,7 @@ use crate::anim::{Animation, Animator, Frame, with_dev_coords};
 pub struct Maelstrom {
 	orig: Frame,
 	interm: Frame,
+	wait_time: f32,
 	speed_min: f32,
 	speed_max: f32,
 	rows: usize,
@@ -23,6 +24,7 @@ impl Maelstrom {
 		Self {
 			orig: Default::default(),
 			interm: Default::default(),
+			wait_time: 1.0,
 			speed_min: 1.0,
 			speed_max: 1.0,
 			rows: 0,
@@ -45,6 +47,8 @@ impl Animation for Maelstrom {
 			.unwrap_or(&toml::Value::Float(1.0)).as_float().unwrap_or(1.0) as f32;
 		self.speed_max = config.get("speed_max")
 			.unwrap_or(&toml::Value::Float(1.0)).as_float().unwrap_or(1.0) as f32;
+		self.wait_time = config.get("wait_time")
+			.unwrap_or(&toml::Value::Float(1.0)).as_float().unwrap_or(1.0) as f32;
 	}
 
 	fn init(&mut self, initial: Frame) {
@@ -58,11 +62,11 @@ impl Animation for Maelstrom {
 	fn initial_frame(&self) -> Frame { Frame::seeded() }
 
 	fn update(&mut self, dt: Duration) -> Frame {
-		if dt.as_secs() < Animator::WAIT_TIME {
+		if dt.as_secs_f32() < self.wait_time {
 			return self.interm.clone();
 		}
 		let Frame(ref cells) = self.orig;
-		let seconds = dt.as_secs_f32() - Animator::WAIT_TIME as f32;
+		let seconds = dt.as_secs_f32() - self.wait_time;
 
 		for (y,row) in cells.iter().enumerate() {
 			for (x,_) in row.iter().enumerate() {
@@ -91,6 +95,7 @@ impl Animation for Maelstrom {
 
 	fn resize(&mut self, w: usize, h: usize) {
 		self.orig.resize(w, h);
+		self.interm = Frame::with_capacity(w, h);
 		self.rows = h;
 		self.cols = w;
 	}

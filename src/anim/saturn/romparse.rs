@@ -1,5 +1,11 @@
 use std::{collections::HashMap, sync::LazyLock};
 
+/*
+ * In this file we literally are decompressing assets from read-only memory extracted from Earthbound.
+ * Credit goes to Mr. Accident of forum.starmen.net for the reverse engineering of the ROM data.
+ * This implementation is based on his work. It's also probably in a legal grey area. Don't tell Nintendo :)
+ */
+
 /// background ROM data extracted directly from Earthbound/Mother 2
 const BACKGROUNDS_DAT: &[u8] = include_bytes!("../../../assets/saturn_bg.dat");
 
@@ -19,6 +25,50 @@ impl Default for SaturnBgData {
 }
 
 impl SaturnBgData {
+	pub const BLACKLISTED: [usize;20] = [
+		// these are either pure black screens, or solid unchanging colors
+		0,
+		33,
+		191,
+		192,
+		193,
+		194,
+		235,
+		236,
+		237,
+		238,
+		239,
+		241,
+		242,
+		244,
+		245,
+		247,
+		253,
+		254,
+		265,
+		279,
+	];
+	pub const GIYGAS: [usize;17] = [
+		// these are all the backgrounds used in the Giygas fight.
+		// Will make your pc look haunted, so they are disabled by default, but can be enabled in the config file.
+		220,
+		221,
+		222,
+		223,
+		224,
+		225,
+		226,
+		227,
+		248,
+		249,
+		250,
+		251,
+		252,
+		295,
+		296,
+		298,
+		301,
+	];
 	pub fn new() -> Self {
 		Self::default()
 	}
@@ -39,10 +89,11 @@ impl SaturnBgData {
 		effect
 	}
 
-	pub fn valid_indices(&self) -> Vec<usize> {
+	pub fn valid_indices(&self, no_giygas: bool) -> Vec<usize> {
 		let mut indices = vec![];
 		for i in 0..327 {
-			if [239,235].contains(&i) {
+			if Self::BLACKLISTED.contains(&i)
+			|| no_giygas && Self::GIYGAS.contains(&i) {
 				// it's a black screen for some reason.
 				continue;
 			}

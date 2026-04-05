@@ -2,78 +2,7 @@ use crossterm::style::Color;
 use glam::Vec3;
 use noise::{NoiseFn, Perlin};
 
-use crate::{GRADIENTS, anim::{Animation, Cell, Frame, braille_texture}};
-
-#[derive(Clone, Debug)]
-pub struct Gradient {
-	pub bg: Option<Color>,
-	pub stops: Vec<Vec3>
-}
-
-impl Gradient {
-	pub fn ocean() -> Self {
-		Gradient {
-			bg: Some(Color::Rgb { r: 0, g: 0, b: 20 }),
-			stops: vec![
-				Vec3 { x: 0.0, y: 0.0, z: 50.0 },
-				Vec3 { x: 0.0, y: 120.0, z: 200.0 },
-				Vec3 { x: 200.0, y: 240.0, z: 255.0 }
-			]
-		}
-	}
-	pub fn fire() -> Self {
-		Gradient {
-			bg: Some(Color::Rgb { r: 10, g: 0, b: 0 }),
-			stops: vec![
-				Vec3 { x: 20.0, y: 0.0, z: 0.0 },
-				Vec3 { x: 200.0, y: 30.0, z: 0.0 },
-				Vec3 { x: 255.0, y: 150.0, z: 0.0 },
-				Vec3 { x: 255.0, y: 255.0, z: 100.0 },
-			]
-		}
-	}
-	pub fn vapor() -> Self {
-		Gradient {
-			bg: Some(Color::Rgb { r: 15, g: 0, b: 30 }),
-			stops: vec![
-				Vec3 { x: 40.0, y: 0.0, z: 80.0 },
-				Vec3 { x: 200.0, y: 0.0, z: 150.0 },
-				Vec3 { x: 255.0, y: 100.0, z: 200.0 },
-				Vec3 { x: 0.0, y: 255.0, z: 255.0 },
-			]
-		}
-	}
-	pub fn mono() -> Self {
-		Gradient {
-			bg: Some(Color::Rgb { r: 0, g: 0, b: 0 }),
-			stops: vec![
-				Vec3 { x: 20.0, y: 20.0, z: 20.0 },
-				Vec3 { x: 255.0, y: 255.0, z: 255.0 },
-			]
-		}
-	}
-	pub fn aurora() -> Self {
-		Gradient {
-			bg: Some(Color::Rgb { r: 0, g: 0, b: 15 }),
-			stops: vec![
-				Vec3 { x: 0.0, y: 0.0, z: 40.0 },
-				Vec3 { x: 0.0, y: 200.0, z: 100.0 },
-				Vec3 { x: 0.0, y: 150.0, z: 200.0 },
-				Vec3 { x: 150.0, y: 0.0, z: 200.0 },
-			]
-		}
-	}
-	pub fn sample(&self, t: f32) -> Color {
-		let t = t.clamp(0.0, 1.0);
-		let segments = (self.stops.len() - 1) as f32;
-		let scaled = t * segments;
-		let i = (scaled as usize).min(self.stops.len() - 2);
-		let local_t = scaled - i as f32;
-		let c = self.stops[i].lerp(self.stops[i + 1], local_t);
-		Color::Rgb { r: c.x as u8, g: c.y as u8, b: c.z as u8 }
-	}
-}
-
+use crate::{GRADIENTS, anim::{Animation, Cell, Frame, Gradient, braille_texture}, get_gradient};
 
 pub struct PerlinNoise {
 	orig: Frame,
@@ -132,7 +61,7 @@ impl Animation for PerlinNoise {
 			.unwrap_or(toml::Value::String("aurora".to_string()));
 		let gradient_name = gradient_name.as_str().unwrap_or("aurora");
 
-		let gradient = GRADIENTS.get(gradient_name).cloned().unwrap_or(Gradient::aurora());
+		let gradient = get_gradient(gradient_name).unwrap_or(Gradient::aurora());
 		self.gradient = gradient;
 	}
 
