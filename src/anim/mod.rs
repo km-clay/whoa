@@ -1,0 +1,507 @@
+use std::{fmt::Display, hash::{DefaultHasher, Hash, Hasher}, io::{Stdout, Write}, ops::{Div, Mul}, time::{Duration, Instant}};
+use bitflags::bitflags;
+
+use crossterm::{cursor, execute, queue, style::{Color, Stylize}, terminal};
+use glam::Vec2;
+
+pub mod saturn;
+pub mod slime;
+pub mod cos;
+pub mod perlin;
+pub mod collapse;
+pub mod maelstrom;
+pub mod conway;
+
+fn braille_texture() -> [char; 256] {
+	let mut chars: [(char, u32); 256] = [(char::default(), 0); 256];
+	let mut i = 0;
+	while i < 256 {
+		let c = char::from_u32(0x2800 + i as u32).unwrap();
+		chars[i] = (c, (i as u32).count_ones());
+		i += 1;
+	}
+	chars.sort_by_key(|&(_, dots)| dots);
+	let mut result = [' '; 256];
+	let mut i = 0;
+	while i < 256 {
+		result[i] = chars[i].0;
+		i += 1;
+	}
+	result
+}
+
+pub fn to_device(v: Vec2) -> Vec2 {
+	// Normalize screen coordinates from [0,1] range to [-1,1] range
+	// Y is flipped because the top of the screen is 0
+	Vec2 {
+		x: (2.0 * v.x) - 1.0,
+		y: 1.0 - (2.0 * v.y)
+	}
+}
+
+pub fn from_device(v: Vec2) -> Vec2 {
+	Vec2 {
+		x: (v.x + 1.0) / 2.0,
+		y: 1.0 - (v.y + 1.0) / 2.0
+	}
+}
+
+pub fn with_dev_coords<F>(v: Vec2, s: Vec2, f: F) -> Vec2
+where F: FnOnce(Vec2) -> Vec2 {
+	let norm = v.div(s);
+	let dev = to_device(norm);
+
+	let res = f(dev);
+
+	from_device(res).mul(s)
+}
+
+pub trait Animation {
+	fn init(&mut self, initial: Frame);
+	fn initial_frame(&self) -> Frame { Frame::from_terminal() }
+	fn update(&mut self, dt: Duration) -> Frame;
+	fn is_done(&self) -> bool;
+	fn resize(&mut self, w: usize, h: usize);
+	fn configure(&mut self, config: &toml::Value);
+}
+
+#[derive(Default,Clone,Debug)]
+pub struct Cursor {
+	pub pressed: bool,
+	pub pos: Vec2
+}
+
+#[derive(Default,Clone,Debug,Hash)]
+pub struct Frame(Vec<Vec<Cell>>);
+
+type Rows = usize;
+type Cols = usize;
+impl Frame {
+	pub fn take(&mut self) -> Self {
+		let (rows,cols) = self.dims().unwrap_or((0,0));
+		let new_cells = Self::with_capacity(cols, rows).0;
+		Frame(std::mem::replace(&mut self.0, new_cells))
+	}
+	pub fn with_capacity(cols: usize, rows: usize) -> Self {
+		Frame(vec![vec![Cell::default(); cols]; rows])
+	}
+	pub fn get_hash(&self) -> u64 {
+		let mut hasher = DefaultHasher::new();
+		self.hash(&mut hasher);
+		hasher.finish()
+	}
+	pub fn from_terminal() -> Self {
+		let (cols,rows) = crossterm::terminal::size().unwrap_or((80, 24));
+		let mut builder = FrameBuilder::new(cols as usize, rows as usize);
+		builder.feed_bytes(b"\x1b[?25l"); // hide cursor
+		builder.feed_bytes(b"\x1b[2J"); // clear screen
+		builder.feed_bytes(b"\x1b[H"); // move cursor to top-left
+		let mut frame = builder.build();
+		frame.resize(cols as usize, rows as usize);
+		frame
+	}
+	pub fn seeded() -> Self {
+		let mut command = std::process::Command::new("man");
+		command.arg("man");
+		Frame::from_command(command)
+	}
+	pub fn from_command(mut command: std::process::Command) -> Self {
+		let (cols,rows) = crossterm::terminal::size().unwrap_or((80, 24));
+		let output = command
+			.env("COLUMNS", cols.to_string())
+			.output()
+			.expect("Failed to execute command");
+
+		let mut builder = FrameBuilder::new(cols as usize, rows as usize);
+		builder.feed_bytes(&output.stdout);
+		let mut frame = builder.build();
+		frame.resize(cols as usize, rows as usize);
+		frame
+	}
+	pub fn dims(&self) -> Option<(Rows,Cols)> {
+		let rows = self.0.len();
+		if rows == 0 {
+			return None;
+		}
+		let cols = self.0[0].len();
+		Some((rows, cols))
+	}
+
+	pub fn resize(&mut self, w: usize, h: usize) {
+		// adjust columns on existing rows
+		for row in &mut self.0 {
+			row.resize(w, Cell::default());
+		}
+		// adjust row count
+		self.0.resize(h, vec![Cell::default(); w]);
+	}
+}
+
+pub struct FrameBuilder {
+	cells: Vec<Vec<Cell>>,
+	row: usize,
+	rows: usize,
+	col: usize,
+	cols: usize,
+	current_fg: Color,
+	current_bg: Color,
+	current_flags: CellFlags,
+	parser: vte::Parser
+}
+
+impl FrameBuilder {
+	pub fn new(cols: usize, rows: usize) -> Self {
+		Self {
+			cells: vec![vec![Cell::default(); cols]; rows],
+			row: 0,
+			rows,
+			col: 0,
+			cols,
+			current_fg: Color::Reset,
+			current_bg: Color::Reset,
+			current_flags: CellFlags::empty(),
+			parser: vte::Parser::new()
+		}
+	}
+	pub fn feed_bytes(&mut self, bytes: &[u8]) {
+		let mut parser = std::mem::take(&mut self.parser);
+		parser.advance(self, bytes);
+		self.parser = parser;
+	}
+	pub fn build(self) -> Frame {
+		Frame(self.cells)
+	}
+}
+
+impl vte::Perform for FrameBuilder {
+	fn print(&mut self, c: char) {
+		if self.col >= self.cols {
+			self.col = 0;
+			self.row += 1;
+		}
+		if self.row >= self.rows {
+			self.cells.push(vec![Cell::default(); self.cols]);
+			self.rows += 1;
+		}
+	  let cell = Cell {
+			ch: c,
+			fg: self.current_fg,
+			bg: self.current_bg,
+			flags: self.current_flags
+		};
+		self.cells[self.row][self.col] = cell;
+		self.col += 1;
+	}
+	fn execute(&mut self, byte: u8) {
+		match byte {
+			b'\n' => {
+				self.row += 1;
+				self.col = 0;
+				if self.row >= self.rows {
+					self.cells.push(vec![Cell::default(); self.cols]);
+					self.rows += 1;
+				}
+			}
+			b'\r' => {
+				self.col = 0;
+			}
+			_ => {}
+		}
+	}
+	fn csi_dispatch(
+		&mut self,
+		params: &vte::Params,
+		_intermediates: &[u8],
+		_ignore: bool,
+		action: char,
+	) {
+		if action != 'm' { return; }
+		let params: Vec<u16> = params.iter()
+			.flat_map(|p| p.iter().copied())
+			.collect();
+
+		let mut i = 0;
+		while i < params.len() {
+			let Some(param) = params.get(i) else { continue; };
+			match param {
+				0 => {
+					self.current_fg = Color::Reset;
+					self.current_bg = Color::Reset;
+					self.current_flags = CellFlags::empty();
+				}
+				1 => self.current_flags.insert(CellFlags::BOLD),
+				2 => self.current_flags.insert(CellFlags::DIM),
+				3 => self.current_flags.insert(CellFlags::ITALIC),
+				4 => self.current_flags.insert(CellFlags::UNDERLINE),
+				7 => self.current_flags.insert(CellFlags::INVERSE),
+				8 => self.current_flags.insert(CellFlags::HIDDEN),
+				9 => self.current_flags.insert(CellFlags::STRIKETHROUGH),
+				30..=37 => self.current_fg = Color::AnsiValue((params[i] - 30) as u8),
+				38 | 48 => {
+					let is_bg = *param == 48;
+					i += 1;
+					let Some(param2) = params.get(i) else { continue; };
+					match param2 {
+						5 => {
+							i += 1;
+							let Some(param3) = params.get(i) else { continue; };
+							let color = Color::AnsiValue(*param3 as u8);
+							if is_bg {
+								self.current_bg = color;
+							} else {
+								self.current_fg = color;
+							}
+						}
+						2 => {
+							i += 1;
+							let Some(param3) = params.get(i) else { continue; };
+							i += 1;
+							let Some(param4) = params.get(i) else { continue; };
+							i += 1;
+							let Some(param5) = params.get(i) else { continue; };
+
+							let color = Color::Rgb { r: *param3 as u8, g: *param4 as u8, b: *param5 as u8 };
+							if is_bg {
+								self.current_bg = color;
+							} else {
+								self.current_fg = color;
+							}
+						}
+						_ => {}
+					}
+				}
+				39 => self.current_fg = Color::Reset,
+				40..=47 => self.current_bg = Color::AnsiValue((params[i] - 40) as u8),
+				49 => self.current_bg = Color::Reset,
+				90..=97 => self.current_fg = Color::AnsiValue((params[i] - 90 + 8) as u8),
+				100..=107 => self.current_bg = Color::AnsiValue((params[i] - 100 + 8) as u8),
+				_ => { /* ignore unknown params */ }
+			}
+			i += 1;
+		}
+	}
+}
+
+pub struct Animator {
+	animation: Box<dyn Animation>,
+	config: toml::Value,
+	animation_time: f32, // time in seconds before the animation is forced to end.
+	last_frame: Option<Frame>,
+	out_channel: Stdout,
+	start: Instant
+}
+
+impl Animator {
+	const TARGET_FRAME_RATE: u64 = 24;
+	pub const WAIT_TIME: u64 = 3;
+
+	pub fn new(mut animation: Box<dyn Animation>, config: toml::Value) -> Self {
+		let frame = animation.initial_frame();
+		log::debug!("Initial frame dimensions: {:?}", frame.dims());
+		log::debug!("Initial frame content:\n{}", frame.0.iter().map(|row| row.iter().map(|cell| cell.ch).collect::<String>()).collect::<Vec<_>>().join("\n"));
+		animation.init(frame);
+		animation.configure(&config);
+		Self {
+			animation,
+			animation_time: 0.0,
+			config,
+			last_frame: None,
+			out_channel: std::io::stdout(),
+			start: Instant::now()
+		}
+	}
+
+	pub fn play(&mut self) {
+		{
+			let mut stdout = std::io::stdout();
+			execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide).unwrap();
+		}
+		let (mut last_cols, mut last_rows) = crossterm::terminal::size().unwrap_or((80, 24));
+		loop {
+			let tick_start = Instant::now();
+
+			let (cols, rows) = crossterm::terminal::size().unwrap_or((last_cols, last_rows));
+			if cols != last_cols || rows != last_rows {
+				self.animation.resize(cols as usize, rows as usize);
+				self.last_frame = None; // force full redraw
+				last_cols = cols;
+				last_rows = rows;
+			}
+
+			let frame = self.animation.update(self.start.elapsed());
+			self.render(frame);
+
+			let tick_duration = tick_start.elapsed().as_millis();
+			let target = 1000 / Self::TARGET_FRAME_RATE; // ms per frame
+			let sleep_time = target.saturating_sub(tick_duration as u64);
+
+			if sleep_time > 0 {
+				std::thread::sleep(Duration::from_millis(sleep_time));
+			}
+
+			if self.animation.is_done()
+			|| (self.animation_time > 0.0 && self.start.elapsed().as_secs_f32() > self.animation_time) {
+				break;
+			}
+		}
+	}
+
+	fn render(&mut self, frame: Frame) {
+		let Frame(cells) = frame;
+		let rows = cells.len();
+		if rows == 0 {
+			return;
+		}
+		let cols = cells[0].len();
+
+		for row in 0..rows {
+			for col in 0..cols {
+				if let Some(Frame(last_frame)) = self.last_frame.as_ref() {
+					if last_frame[row][col] != cells[row][col] {
+						// move to row, col, write the cell
+						let cell = &cells[row][col];
+						queue!(self.out_channel, cursor::MoveTo(col as u16, row as u16)).unwrap();
+						write!(self.out_channel, "{cell}").unwrap();
+					}
+				} else {
+					let cell = &cells[row][col];
+					queue!(self.out_channel, cursor::MoveTo(col as u16, row as u16)).unwrap();
+					write!(self.out_channel, "{cell}").unwrap();
+				}
+			}
+		}
+		self.out_channel.flush().unwrap();
+
+		self.last_frame = Some(Frame(cells));
+	}
+}
+
+impl Drop for Animator {
+	fn drop(&mut self) {
+		let mut stdout = std::io::stdout();
+		execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show).unwrap();
+	}
+}
+
+bitflags! {
+	#[derive(Default,Clone,Copy,Debug,PartialEq,Eq,Hash)]
+	pub struct CellFlags: u32 {
+		const BOLD = 0b00000001;
+		const ITALIC = 0b00000010;
+		const UNDERLINE = 0b00000100;
+		const INVERSE = 0b00001000;
+		const HIDDEN = 0b00010000;
+		const STRIKETHROUGH = 0b00100000;
+		const DIM = 0b01000000;
+		const BLINK = 0b10000000;
+	}
+}
+
+#[derive(Clone,Debug,PartialEq,Eq,Hash)]
+pub struct Cell {
+	pub ch: char,
+	pub fg: Color,
+	pub bg: Color,
+	pub flags: CellFlags
+}
+
+impl Default for Cell {
+	fn default() -> Self {
+		Self {
+			ch: ' ',
+			fg: Color::Reset,
+			bg: Color::Reset,
+			flags: CellFlags::empty()
+		}
+	}
+}
+
+impl Cell {
+	pub fn is_empty(&self) -> bool {
+		self.ch.is_whitespace() && self.bg == Color::Reset
+	}
+
+	pub fn with_bg(mut self, bg: Color) -> Self {
+		self.bg = bg;
+		self
+	}
+
+	pub fn with_fg(mut self, fg: Color) -> Self {
+		self.fg = fg;
+		self
+	}
+
+	pub fn with_flags(mut self, flags: CellFlags) -> Self {
+		self.flags = flags;
+		self
+	}
+
+	pub fn with_char(mut self, ch: char) -> Self {
+		self.ch = ch;
+		self
+	}
+
+	pub fn set_bg(&mut self, bg: Color) {
+		self.bg = bg;
+	}
+
+	pub fn set_fg(&mut self, fg: Color) {
+		self.fg = fg;
+	}
+
+	pub fn set_flags(&mut self, flags: CellFlags) {
+		self.flags = flags;
+	}
+
+	pub fn set_char(&mut self, ch: char) {
+		self.ch = ch;
+	}
+}
+
+impl Display for Cell {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let Cell { ch, fg, bg, flags } = self;
+
+		let mut styled = crossterm::style::style(ch)
+			.with(*fg)
+			.on(*bg);
+
+		if flags.contains(CellFlags::BOLD) {
+			styled = styled.bold();
+		}
+		if flags.contains(CellFlags::ITALIC) {
+			styled = styled.italic();
+		}
+		if flags.contains(CellFlags::UNDERLINE) {
+			styled = styled.underlined();
+		}
+		if flags.contains(CellFlags::INVERSE) {
+			styled = styled.reverse();
+		}
+		if flags.contains(CellFlags::HIDDEN) {
+			styled = styled.hidden();
+		}
+		if flags.contains(CellFlags::STRIKETHROUGH) {
+			styled = styled.crossed_out();
+		}
+		if flags.contains(CellFlags::DIM) {
+			styled = styled.dim();
+		}
+		if flags.contains(CellFlags::BLINK) {
+			styled = styled.slow_blink();
+		}
+
+		write!(f, "{styled}")
+	}
+}
+
+impl From<char> for Cell {
+	fn from(value: char) -> Self {
+		Self {
+			ch: value,
+			fg: Color::Reset,
+			bg: Color::Reset,
+			flags: CellFlags::empty()
+		}
+	}
+}
