@@ -2,6 +2,8 @@
 
 A terminal screensaver with multiple visual effects, powered by [cellophane](https://github.com/km-clay/cellophane).
 
+![whoa](https://github.com/user-attachments/assets/d1a4614b-718f-4baf-81d8-b64d5cb2b6ef)
+
 ## Animations
 
 - **perlin** — Flowing Perlin noise visualized with Braille characters and color gradients
