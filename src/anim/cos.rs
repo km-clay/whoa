@@ -46,7 +46,7 @@ impl Animation for Cosine {
 
 	#[allow(clippy::needless_range_loop)]
 	fn update(&mut self, dt: std::time::Duration) -> Frame {
-		let Frame(ref cells) = self.orig;
+		let cells = self.orig.cells();
 		let seconds = dt.as_secs_f64();
 
 		for col in 0..self.cols {
@@ -55,7 +55,8 @@ impl Animation for Cosine {
 			let offset = factor as usize;
 
 			for row in 0..self.rows {
-				self.interm.0[(row + offset) % self.rows][col] = cells[row][col].clone();
+				let Some(cell) = self.interm.get_cell_mut((row + offset) % self.rows, col) else { continue };
+				*cell = cells[row][col].clone();
 			}
 		}
 

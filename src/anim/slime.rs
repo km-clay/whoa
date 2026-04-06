@@ -9,11 +9,12 @@
 
 use std::{f64::consts::PI, time::Instant};
 
+use cellophane::{Cell, Frame};
 use crossterm::style::Color;
 use glam::Vec2;
 
 use crate::get_gradient;
-use crate::anim::{Animation, WhoaAnimation, Cell, Cursor, Frame};
+use crate::anim::{Animation, WhoaAnimation, Cursor};
 use crate::anim::Gradient;
 
 const NUM_AGENTS: usize = 1500;
@@ -421,9 +422,10 @@ impl SlimeSim {
 				let (ch, val) = self.render_cell(row, col);
 				let color = gradient.sample(val);
 				let mut cell = Cell::from(ch);
-				cell.fg = color;
-				cell.bg = gradient.bg.unwrap_or(Color::Reset);
-				out.0[row][col] = cell;
+				cell.set_fg(color);
+				cell.set_bg(gradient.bg.unwrap_or(Color::Reset));
+				let Some(out_cell) = out.get_cell_mut(row, col) else { continue };
+				*out_cell = cell;
 			}
 		}
 	}

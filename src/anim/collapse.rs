@@ -73,7 +73,7 @@ impl Animation for Collapse {
 			return self.frame.clone();
 		};
 		let mut moved = false;
-		let Frame(mut cells) = self.frame.clone();
+		let mut cells = self.frame.take().into_cells();
 		for row in (1..rows).rev() {
 			for col in 0..cols {
 				let (upper,lower) = cells.split_at_mut(row);
@@ -93,7 +93,7 @@ impl Animation for Collapse {
 		}
 
 		self.last_tick = Instant::now();
-		self.frame = Frame(cells);
+		self.frame = Frame::from_cells(cells);
 		self.frame.clone()
 	}
 

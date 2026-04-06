@@ -150,6 +150,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cellophane"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ec78bf97b687dae04bfe40822dd866b145183214746c2ab103e0592e2bc8f40"
+dependencies = [
+ "bitflags",
+ "crossterm",
+ "log",
+ "smallvec",
+ "unicode-segmentation",
+ "unicode-width",
+ "vte",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1310,6 +1325,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitflags",
+ "cellophane",
  "clap",
  "crossterm",
  "ctrlc",

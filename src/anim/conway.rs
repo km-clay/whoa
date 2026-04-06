@@ -1,6 +1,8 @@
-use std::{collections::HashMap, time::{Duration, Instant}};
+use std::{collections::HashMap, hash::{DefaultHasher, Hash, Hasher}, time::{Duration, Instant}};
 
-use crate::anim::{Animation, WhoaAnimation, Cell, Frame, seeded_frame};
+use cellophane::{Animation, Cell, Frame};
+
+use crate::anim::{WhoaAnimation, seeded_frame};
 
 pub struct Conway {
 	last_tick: Instant,
@@ -27,39 +29,41 @@ impl Conway {
 	pub fn reproduce(cells: &[Cell]) -> Cell {
 		let [parent1, parent2, parent3] = cells else { panic!("Exactly 3 cells must be provided") };
 		let glyphs = [
-			parent1.ch.clone(),
-			parent2.ch.clone(),
-			parent3.ch.clone()
+			parent1.ch().clone(),
+			parent2.ch().clone(),
+			parent3.ch().clone()
 		];
 		let fg_colors = [
-			parent1.fg,
-			parent2.fg,
-			parent3.fg
+			parent1.fg(),
+			parent2.fg(),
+			parent3.fg()
 		];
 		let bg_colors = [
-			parent1.bg,
-			parent2.bg,
-			parent3.bg
+			parent1.bg(),
+			parent2.bg(),
+			parent3.bg()
 		];
 		let flags = [
-			parent1.flags,
-			parent2.flags,
-			parent3.flags
+			parent1.flags(),
+			parent2.flags(),
+			parent3.flags()
 		];
 		let glyph_i: usize = rand::random_range(0..3);
 		let fg_i: usize = rand::random_range(0..3);
 		let bg_i: usize = rand::random_range(0..3);
 		let flags_i: usize = rand::random_range(0..3);
-		Cell {
-			ch: glyphs[glyph_i].clone(),
-			fg: fg_colors[fg_i],
-			bg: bg_colors[bg_i],
-			flags: flags[flags_i]
-		}
+		Cell::new(
+			glyphs[glyph_i].clone(),
+			fg_colors[fg_i],
+			bg_colors[bg_i],
+			flags[flags_i]
+		)
 	}
 
 	pub fn hash_frame(&mut self) {
-		let hash = self.frame.get_hash();
+		let mut hasher = DefaultHasher::new();
+		self.frame.hash(&mut hasher);
+		let hash = hasher.finish();
 		let entry = self.state_cache.entry(hash).or_insert(0);
 		*entry += 1;
 
@@ -101,7 +105,7 @@ impl Animation for Conway {
 			return self.frame.clone();
 		}
 		let (rows,cols) = self.frame.dims().unwrap_or((0,0));
-		let Frame(cells) = std::mem::take(&mut self.frame);
+		let cells = self.frame.take().into_cells();
 		let mut new = cells.clone();
 
 		let mut neigh = vec![Cell::default();9];
@@ -156,7 +160,7 @@ impl Animation for Conway {
 		}
 
 		self.last_tick = Instant::now();
-		self.frame = Frame(new);
+		self.frame = Frame::from_cells(new);
 		self.hash_frame();
 		self.frame.clone()
 	}

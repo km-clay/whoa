@@ -1,8 +1,9 @@
 use std::{f64::consts::PI, time::Instant};
 
+use cellophane::{Cell, Frame};
 use crossterm::style::Color;
 
-use crate::{Hat, anim::{Animation, WhoaAnimation, Cell, Frame, saturn::romparse::{DistortionEffect, SaturnBgData}}};
+use crate::{Hat, anim::{Animation, WhoaAnimation, saturn::romparse::{DistortionEffect, SaturnBgData}}};
 
 pub mod romparse;
 
@@ -158,7 +159,7 @@ impl Animation for Saturn {
 			self.last_reroll = Instant::now();
 		}
 
-		let Frame(ref cells) = self.orig;
+		let cells = self.orig.cells();
 
 		let mut effect = self.data.get_effect(self.bg_index, self.effect_index).clone();
 		if (self.tick / 60) / 10 > effect.duration as usize {
@@ -261,7 +262,8 @@ impl Animation for Saturn {
 				let fg = sample(top_y, src_x);
 				let bg = sample(bot_y, src_x);
 
-				self.interm.0[y][x] = Cell::default()
+				let Some(cell) = self.interm.get_cell_mut(y, x) else { continue };
+				*cell = Cell::default()
 					.with_char('▀')
 					.with_fg(fg)
 					.with_bg(bg);

@@ -1,5 +1,6 @@
-use std::{cell::RefCell, collections::HashMap, env, io::IsTerminal, path::PathBuf, time::Duration};
+use std::{cell::RefCell, collections::HashMap, env, io::{self,IsTerminal}, path::PathBuf, time::Duration};
 
+use cellophane::{Animation, Animator};
 use clap::{Parser, Subcommand};
 use crossterm::{cursor, execute, terminal};
 use indoc::indoc;
@@ -7,7 +8,7 @@ use rand::seq::SliceRandom;
 use syntect::{easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet, util::as_24_bit_terminal_escaped};
 use toml::Value;
 
-use crate::anim::{Animation, WhoaAnimation, Animator, Gradient};
+use crate::anim::{WhoaAnimation, Gradient};
 
 pub mod anim;
 
@@ -151,9 +152,9 @@ pub fn pull_seed_content() -> String {
 pub fn collect_seed_content() -> anyhow::Result<()> {
 	let mut seed_content = vec![];
 
-	if !std::io::stdin().is_terminal() {
+	if !io::stdin().is_terminal() {
 		let mut buffer = String::new();
-		while let Ok(bytes_read) = std::io::stdin().read_line(&mut buffer) {
+		while let Ok(bytes_read) = io::stdin().read_line(&mut buffer) {
 			if bytes_read == 0 {
 				break;
 			}
@@ -488,7 +489,7 @@ fn get_config() -> anyhow::Result<toml::Value> {
 fn init_panic_handler() {
 	let default_hook = std::panic::take_hook();
 	std::panic::set_hook(Box::new(move |info| {
-		let mut stdout = std::io::stdout();
+		let mut stdout = io::stdout();
 		execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show).ok();
 		terminal::disable_raw_mode().ok();
 		default_hook(info)
@@ -499,7 +500,7 @@ fn main() -> anyhow::Result<()> {
 	init_panic_handler();
 	env_logger::init();
 	ctrlc::set_handler(|| {
-		let mut stdout = std::io::stdout();
+		let mut stdout = io::stdout();
 		execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show).ok();
 		terminal::disable_raw_mode().ok();
 		std::process::exit(0);
@@ -568,7 +569,12 @@ fn main() -> anyhow::Result<()> {
 					}
 				}
 				Err(e) => {
-					anyhow::bail!("Animation error: {e}");
+					if e.kind() == io::ErrorKind::Interrupted {
+						// This can happen when the user sends an interrupt signal (like Ctrl+C) to the program.
+						break 'outer
+					} else {
+						anyhow::bail!("Animation error: {e}");
+					}
 				}
 			}
 		}

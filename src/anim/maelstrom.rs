@@ -67,7 +67,7 @@ impl Animation for Maelstrom {
 		if dt.as_secs_f32() < self.wait_time {
 			return self.interm.clone();
 		}
-		let Frame(ref cells) = self.orig;
+		let cells = self.orig.cells();
 		let seconds = dt.as_secs_f32() - self.wait_time;
 
 		for (y,row) in cells.iter().enumerate() {
@@ -83,7 +83,8 @@ impl Animation for Maelstrom {
 				});
 				let (res_x, res_y) = (res.x.round() as usize, res.y.round() as usize);
 				if res_x < self.cols && res_y < self.rows {
-					self.interm.0[y][x] = cells[res_y][res_x].clone();
+					let Some(cell) = self.interm.get_cell_mut(y, x) else { continue };
+					*cell = cells[res_y][res_x].clone();
 				}
 			}
 		}

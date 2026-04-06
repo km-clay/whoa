@@ -1,7 +1,8 @@
+use cellophane::{Animation, Cell, Frame};
 use crossterm::style::Color;
 use noise::{NoiseFn, Perlin};
 
-use crate::{anim::{Animation, WhoaAnimation, Cell, Frame, Gradient, braille_texture}, get_gradient};
+use crate::{anim::{Gradient, WhoaAnimation, braille_texture}, get_gradient};
 
 pub struct PerlinNoise {
 	orig: Frame,
@@ -76,8 +77,9 @@ impl Animation for PerlinNoise {
 
 	fn update(&mut self, dt: std::time::Duration) -> Frame {
 		let seconds = dt.as_secs_f32();
+		let cells = self.orig.cells();
 
-		for (y, row) in self.orig.0.iter().enumerate() {
+		for (y, row) in cells.iter().enumerate() {
 			for (x, _) in row.iter().enumerate() {
 				let nx = x as f64 / self.cols as f64 * self.scale + seconds as f64 * self.speed as f64 * self.y_delta;
 				let ny = y as f64 / self.rows as f64 * self.scale + seconds as f64 * self.speed as f64 * self.x_delta;
@@ -91,12 +93,15 @@ impl Animation for PerlinNoise {
 				let index = index.clamp(0,self.texture.len() as i32 - 1);
 				if index >= 0 {
 					let mut cell = Cell::from(self.texture[index as usize]);
-					cell.fg = color;
-					cell.bg = g.bg.unwrap_or(Color::Reset);
-					self.interm.0[y][x] = cell;
+					cell.set_fg(color);
+					cell.set_bg(g.bg.unwrap_or(Color::Reset));
+					let Some(interm_cell) = self.interm.get_cell_mut(y, x) else { continue };
+					*interm_cell = cell;
 				} else {
-					let cell = Cell { bg: g.bg.unwrap_or(Color::Reset), ..Default::default() };
-					self.interm.0[y][x] = cell;
+					let cell = Cell::default().with_bg(g.bg.unwrap_or(Color::Reset));
+					let Some(interm_cell) = self.interm.get_cell_mut(y, x) else { continue };
+
+					*interm_cell = cell;
 				}
 			}
 		}
