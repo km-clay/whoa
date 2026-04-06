@@ -1,13 +1,30 @@
 use std::{str::FromStr, time::{Duration, Instant}};
+use rand::random_range;
 use crate::anim::{Animation, WhoaAnimation, Frame, seeded_frame};
 
-#[derive(Default,Debug)]
+#[derive(Default,Debug,Clone,Copy)]
 enum Direction {
 	#[default]
 	Down,
 	Up,
 	Left,
-	Right
+	Right,
+	Random
+}
+
+impl Direction {
+	fn resolve(self) -> Self {
+		if let Direction::Random = self {
+			match random_range(0..4u8) {
+				0 => Direction::Down,
+				1 => Direction::Up,
+				2 => Direction::Left,
+				_ => Direction::Right,
+			}
+		} else {
+			self
+		}
+	}
 }
 
 impl FromStr for Direction {
@@ -18,6 +35,7 @@ impl FromStr for Direction {
 			"down" => Ok(Self::Down),
 			"left" => Ok(Self::Left),
 			"right" => Ok(Self::Right),
+			"random" => Ok(Self::Random),
 			_ => Err(format!("Invalid direction: {s}"))
 		}
 	}
@@ -74,16 +92,59 @@ impl Animation for Collapse {
 		};
 		let mut moved = false;
 		let mut cells = self.frame.take().into_cells();
-		for row in (1..rows).rev() {
-			for col in 0..cols {
-				let (upper,lower) = cells.split_at_mut(row);
-				let above = &mut upper[row - 1][col];
-				let this = &mut lower[0][col];
-				if this.is_empty() {
-					moved = true;
-					std::mem::swap(this,above);
+		let direction = self.direction.resolve();
+		match direction {
+			Direction::Down => {
+				for row in (1..rows).rev() {
+					for col in 0..cols {
+						let (upper, lower) = cells.split_at_mut(row);
+						let above = &mut upper[row - 1][col];
+						let this = &mut lower[0][col];
+						if this.is_empty() {
+							moved = true;
+							std::mem::swap(this, above);
+						}
+					}
 				}
 			}
+			Direction::Up => {
+				for row in 0..rows.saturating_sub(1) {
+					for col in 0..cols {
+						let (upper, lower) = cells.split_at_mut(row + 1);
+						let this = &mut upper[row][col];
+						let below = &mut lower[0][col];
+						if this.is_empty() {
+							moved = true;
+							std::mem::swap(this, below);
+						}
+					}
+				}
+			}
+			Direction::Right => {
+				for col in (1..cols).rev() {
+					for row in 0..rows {
+						let left = &cells[row][col - 1];
+						let right = &cells[row][col];
+						if right.is_empty() && !left.is_empty() {
+							moved = true;
+							cells[row].swap(col - 1, col);
+						}
+					}
+				}
+			}
+			Direction::Left => {
+				for col in 0..cols.saturating_sub(1) {
+					for row in 0..rows {
+						let left = &cells[row][col];
+						let right = &cells[row][col + 1];
+						if left.is_empty() && !right.is_empty() {
+							moved = true;
+							cells[row].swap(col, col + 1);
+						}
+					}
+				}
+			}
+			Direction::Random => unreachable!()
 		}
 
 		if !moved {
