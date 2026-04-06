@@ -12,8 +12,8 @@ use std::{f64::consts::PI, time::Instant};
 use crossterm::style::Color;
 use glam::Vec2;
 
-use crate::{GRADIENTS, get_gradient};
-use crate::anim::{Animation, Cell, Cursor, Frame};
+use crate::get_gradient;
+use crate::anim::{Animation, WhoaAnimation, Cell, Cursor, Frame};
 use crate::anim::Gradient;
 
 const NUM_AGENTS: usize = 1500;
@@ -50,7 +50,7 @@ impl Default for SlimeMold {
 	}
 }
 
-impl Animation for SlimeMold {
+impl WhoaAnimation for SlimeMold {
 	fn configure(&mut self, config: &toml::Value) {
 		let Some(config) = config.get("slime") else { return };
 		let gradient_name = config.get("gradient")
@@ -61,6 +61,9 @@ impl Animation for SlimeMold {
 		let gradient = get_gradient(gradient_name).unwrap_or(Gradient::aurora());
 		self.gradient = gradient;
 	}
+}
+
+impl Animation for SlimeMold {
 	fn init(&mut self, initial: Frame) {
 		let (rows, cols) = initial.dims().unwrap_or((0, 0));
 		self.rows = rows;

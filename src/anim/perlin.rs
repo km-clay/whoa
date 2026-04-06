@@ -1,8 +1,7 @@
 use crossterm::style::Color;
-use glam::Vec3;
 use noise::{NoiseFn, Perlin};
 
-use crate::{GRADIENTS, anim::{Animation, Cell, Frame, Gradient, braille_texture}, get_gradient};
+use crate::{anim::{Animation, WhoaAnimation, Cell, Frame, Gradient, braille_texture}, get_gradient};
 
 pub struct PerlinNoise {
 	orig: Frame,
@@ -49,7 +48,7 @@ impl Default for PerlinNoise {
 	}
 }
 
-impl Animation for PerlinNoise {
+impl WhoaAnimation for PerlinNoise {
 	fn configure(&mut self, config: &toml::Value) {
 		let Some(config) = config.get("perlin") else { return };
 		self.speed = config.get("speed")
@@ -64,7 +63,9 @@ impl Animation for PerlinNoise {
 		let gradient = get_gradient(gradient_name).unwrap_or(Gradient::aurora());
 		self.gradient = gradient;
 	}
+}
 
+impl Animation for PerlinNoise {
 	fn init(&mut self, initial: Frame) {
 		let (rows,cols) = initial.dims().unwrap_or((0,0));
 		self.interm = initial.clone();

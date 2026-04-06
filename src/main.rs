@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, env, io::IsTerminal, path::PathBuf};
+use std::{cell::RefCell, collections::HashMap, env, io::IsTerminal, path::PathBuf, time::Duration};
 
 use clap::{Parser, Subcommand};
 use crossterm::{cursor, execute, terminal};
@@ -7,7 +7,7 @@ use rand::seq::SliceRandom;
 use syntect::{easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet, util::as_24_bit_terminal_escaped};
 use toml::Value;
 
-use crate::anim::{Animation, Animator, cos::Cosine, Gradient};
+use crate::anim::{Animation, WhoaAnimation, Animator, Gradient};
 
 pub mod anim;
 
@@ -88,6 +88,7 @@ const DEFAULT_CONTENT: [&str;10] = [
 
 /// A hat that you can pull items from, in a random sequence, without repeats.
 /// After all of the items have been pulled, the hat is refilled and shuffled, so you can keep pulling indefinitely.
+#[derive(Debug, Clone)]
 pub struct Hat<T: Clone> {
 	items: Vec<T>,
 	hat: Vec<usize>
@@ -305,9 +306,21 @@ fn gen_config_file() -> anyhow::Result<()> {
 			[150, 255, 150] # pale green
 		]
 
-		[saturn] # earthbound battle backgrounds
+		[saturn] # earthbound battle background emulator
 		no_giygas = true # filters out the spooky ones
 		lifetime = 20.0  # seconds before rolling a new background
+
+		# A specific background index to load, instead of rolling randomly
+		# There are 327 in total, 1-indexed
+		# bg_index = 325
+
+		# A list of specific background indexes to use for the random pool
+		# Below is my curated list of ones that wont make your eyes melt at 3 am
+		# bg_indexes = [
+		# 	3, 44, 61, 103, 104, 107, 108, 140, 141, 148, 156, 189,
+		# 	196, 197, 198, 199, 209, 229, 231, 232, 233, 234, 243, 258, 287, 289,
+		# 	291, 299, 302, 303, 304, 305, 308, 309, 310, 311, 312, 325
+		# ]
 
 		[perlin] # perlin noise
 		gradient = "ocean"
@@ -334,8 +347,7 @@ fn gen_config_file() -> anyhow::Result<()> {
 	"#};
 
 	let Some(path) = config_file_path() else {
-		eprintln!("Could not find config directory");
-		return Ok(());
+		anyhow::bail!("Could not find config directory");
 	};
 
 	if !path.exists() {
@@ -350,23 +362,18 @@ fn gen_config_file() -> anyhow::Result<()> {
 }
 
 fn config_file_path() -> Option<PathBuf> {
-	dirs::config_dir().map(|dir| dir.join("whoa").join("config.toml"))
-}
-
-fn init_panic_handler() {
-	let default_hook = std::panic::take_hook();
-	std::panic::set_hook(Box::new(move |info| {
-		let mut stdout = std::io::stdout();
-		execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show).unwrap();
-		terminal::disable_raw_mode().ok();
-		default_hook(info)
-	}));
+	dirs::config_dir()
+		.or_else(|| env::var("HOME").ok().map(PathBuf::from).map(|home| home.join(".config")))
+		.map(|dir| dir.join("whoa").join("config.toml"))
 }
 
 fn get_config() -> anyhow::Result<toml::Value> {
 	let args = WhoaArgs::parse();
 
-	let config_content = std::fs::read_to_string(args.config.unwrap_or(config_file_path().unwrap()))?;
+	let Some(path) = args.config.clone().or_else(config_file_path) else {
+		anyhow::bail!("Could not find config directory");
+	};
+	let config_content = std::fs::read_to_string(path)?;
 	let mut config: toml::Value = match toml::from_str(&config_content) {
 		Ok(cfg) => cfg,
 		Err(e) => {
@@ -390,11 +397,16 @@ fn get_config() -> anyhow::Result<toml::Value> {
 				}
 				if let Some(Value::Table(saturn_cfg)) = config.get_mut("saturn") {
 					saturn_cfg.insert("no_giygas".to_string(), Value::Boolean(no_giygas));
-					if let Some(idx) = bg_index {
-						saturn_cfg.insert("bg_index".to_string(), Value::Integer(idx as i64));
-					}
 					if let Some(lifetime) = lifetime {
 						saturn_cfg.insert("lifetime".to_string(), Value::Float(lifetime as f64));
+					}
+					if let Some(idx) = bg_index {
+						if (1..=327).contains(&idx) {
+							let zero_indexed = idx - 1;
+							saturn_cfg.insert("bg_index".to_string(), Value::Integer(zero_indexed as i64));
+						} else {
+							anyhow::bail!("bg_index must be between 1 and 327");
+						}
 					}
 				}
 			}
@@ -473,12 +485,22 @@ fn get_config() -> anyhow::Result<toml::Value> {
 	Ok(config)
 }
 
+fn init_panic_handler() {
+	let default_hook = std::panic::take_hook();
+	std::panic::set_hook(Box::new(move |info| {
+		let mut stdout = std::io::stdout();
+		execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show).ok();
+		terminal::disable_raw_mode().ok();
+		default_hook(info)
+	}));
+}
+
 fn main() -> anyhow::Result<()> {
 	init_panic_handler();
 	env_logger::init();
 	ctrlc::set_handler(|| {
 		let mut stdout = std::io::stdout();
-		execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show).unwrap();
+		execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show).ok();
 		terminal::disable_raw_mode().ok();
 		std::process::exit(0);
 	}).unwrap();
@@ -488,8 +510,9 @@ fn main() -> anyhow::Result<()> {
 
 	if let Some(gradients) = config.get("gradients").and_then(|v| v.as_table()) {
 		for (name, gradient_cfg) in gradients {
-			let Ok(gradient) = Gradient::from_value(gradient_cfg) else {
-				anyhow::bail!("Invalid gradient config for '{}'", name);
+			let gradient = match Gradient::from_value(gradient_cfg) {
+				Ok(g) => g,
+				Err(e) => anyhow::bail!("Invalid gradient config for '{name}': {e}")
 			};
 			register_gradient(name, gradient);
 		}
@@ -502,30 +525,53 @@ fn main() -> anyhow::Result<()> {
 		.and_then(|v| v.as_array())
 		.map(|arr| {
 			arr.iter().filter_map(|v| Some(match v.as_str()? {
-				"saturn" => || { Box::new(anim::saturn::Saturn::new()) as Box<dyn Animation> },
-				"perlin" => || { Box::new(anim::perlin::PerlinNoise::new()) as Box<dyn Animation> },
-				"slime" => || { Box::new(anim::slime::SlimeMold::new()) as Box<dyn Animation> },
-				"maelstrom" => || { Box::new(anim::maelstrom::Maelstrom::new()) as Box<dyn Animation> },
-				"conway" => || { Box::new(anim::conway::Conway::new()) as Box<dyn Animation> },
-				"collapse" => || { Box::new(anim::collapse::Collapse::new()) as Box<dyn Animation> },
-				"cosine" => || { Box::new(Cosine::new()) as Box<dyn Animation> },
+				"saturn" => || { Box::new(anim::saturn::Saturn::new()) as Box<dyn WhoaAnimation> },
+				"perlin" => || { Box::new(anim::perlin::PerlinNoise::new()) as Box<dyn WhoaAnimation> },
+				"slime" => || { Box::new(anim::slime::SlimeMold::new()) as Box<dyn WhoaAnimation> },
+				"maelstrom" => || { Box::new(anim::maelstrom::Maelstrom::new()) as Box<dyn WhoaAnimation> },
+				"conway" => || { Box::new(anim::conway::Conway::new()) as Box<dyn WhoaAnimation> },
+				"collapse" => || { Box::new(anim::collapse::Collapse::new()) as Box<dyn WhoaAnimation> },
+				"cosine" => || { Box::new(anim::cos::Cosine::new()) as Box<dyn WhoaAnimation> },
 				_ => {
 					eprintln!("Invalid animation name: {}, defaulting to saturn",v.as_str()?);
-					|| { Box::new(anim::saturn::Saturn::new()) as Box<dyn Animation> }
+					|| { Box::new(anim::saturn::Saturn::new()) as Box<dyn WhoaAnimation> }
 				}
 			})).collect::<Vec<_>>()
 		}).unwrap_or_default();
 
 	let hat = Hat::new(animations);
 
-	for anim_fn in hat {
+	'outer: for anim_fn in hat {
 		// call the closure to produce the boxed Animation
-		let animation = anim_fn();
+		let mut animation = anim_fn();
+		animation.init(animation.initial_frame());
+		animation.configure(&config);
 
-		let mut animator = Animator::new(animation, &config);
-		if !animator.play() {
-			break
+		let animation: Box<dyn Animation> = animation;
+		let mut animator = match Animator::enter_with(animation) {
+			Ok(animator) => animator,
+			Err(e) => {
+				anyhow::bail!("Failed to initialize animator: {e}");
+			}
 		};
+
+		loop {
+			if config.get("screensaver_mode").and_then(|v| v.as_bool()).unwrap_or(false)
+			&& crossterm::event::poll(Duration::ZERO).unwrap_or(false) {
+				break 'outer
+			}
+
+			match animator.tick() {
+				Ok(keep_running) => {
+					if !keep_running {
+						break;
+					}
+				}
+				Err(e) => {
+					anyhow::bail!("Animation error: {e}");
+				}
+			}
+		}
 	}
 	Ok(())
 }

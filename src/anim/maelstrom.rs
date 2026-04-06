@@ -2,7 +2,7 @@ use std::{ops::Add, time::Duration};
 
 use glam::{Mat2, Vec2};
 
-use crate::anim::{Animation, Animator, Frame, with_dev_coords};
+use crate::anim::{Animation, WhoaAnimation, Frame, seeded_frame, with_dev_coords};
 
 pub struct Maelstrom {
 	orig: Frame,
@@ -40,7 +40,7 @@ impl Default for Maelstrom {
 	}
 }
 
-impl Animation for Maelstrom {
+impl WhoaAnimation for Maelstrom {
 	fn configure(&mut self, config: &toml::Value) {
 		let Some(config) = config.get("maelstrom") else { return };
 		self.speed_min = config.get("speed_min")
@@ -50,7 +50,9 @@ impl Animation for Maelstrom {
 		self.wait_time = config.get("wait_time")
 			.unwrap_or(&toml::Value::Float(1.0)).as_float().unwrap_or(1.0) as f32;
 	}
+}
 
+impl Animation for Maelstrom {
 	fn init(&mut self, initial: Frame) {
 		let (rows,cols) = initial.dims().unwrap_or((0,0));
 		self.orig = initial.clone();
@@ -59,7 +61,7 @@ impl Animation for Maelstrom {
 		self.cols = cols;
 	}
 
-	fn initial_frame(&self) -> Frame { Frame::seeded() }
+	fn initial_frame(&self) -> Frame { seeded_frame() }
 
 	fn update(&mut self, dt: Duration) -> Frame {
 		if dt.as_secs_f32() < self.wait_time {

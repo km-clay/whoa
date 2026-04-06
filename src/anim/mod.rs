@@ -1,9 +1,12 @@
-use std::{fmt::Display, hash::{DefaultHasher, Hash, Hasher}, io::{Stdout, Write}, ops::{Div, Mul}, time::{Duration, Instant}};
+use std::{fmt::{self, Display}, hash::{DefaultHasher, Hash, Hasher}, io::{Stdout, Write}, ops::{Div, Mul}, time::{Duration, Instant}};
 use bitflags::bitflags;
 
 use crossterm::{cursor, execute, queue, style::{Color, Stylize}, terminal};
 use glam::{Vec2, Vec3};
+use smallvec::SmallVec;
 use toml::Value;
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthChar;
 
 use crate::pull_seed_content;
 
@@ -35,6 +38,8 @@ impl Gradient {
 			]
 		});
 
+		let u8_range = 0..256;
+
 		let Value::Integer(r) = bg.get(0).unwrap_or(&Value::Integer(0)) else {
 			anyhow::bail!("Gradient bg must be an array of 3 integers");
 		};
@@ -44,6 +49,9 @@ impl Gradient {
 		let Value::Integer(b) = bg.get(2).unwrap_or(&Value::Integer(0)) else {
 			anyhow::bail!("Gradient bg must be an array of 3 integers");
 		};
+		if !u8_range.contains(r) || !u8_range.contains(g) || !u8_range.contains(b) {
+			anyhow::bail!("Gradient bg color values must be between 0 and 255");
+		}
 		let bg = Color::Rgb { r: *r as u8, g: *g as u8, b: *b as u8 };
 
 		let Some(stops_cfg) = cfg.get("stops").and_then(|s| s.as_array()) else {
@@ -65,6 +73,9 @@ impl Gradient {
 			let Value::Integer(b) = stop.get(2).unwrap_or(&Value::Integer(0)) else {
 				anyhow::bail!("Gradient stops must be arrays of 3 integers");
 			};
+			if !u8_range.contains(r) || !u8_range.contains(g) || !u8_range.contains(b) {
+				anyhow::bail!("Gradient stop color values must be between 0 and 255");
+			}
 			stops.push(Vec3 { x: *r as f32, y: *g as f32, z: *b as f32 });
 		}
 
@@ -185,6 +196,9 @@ pub trait Animation {
 	fn update(&mut self, dt: Duration) -> Frame;
 	fn is_done(&self) -> bool;
 	fn resize(&mut self, w: usize, h: usize);
+}
+
+pub trait WhoaAnimation: Animation {
 	fn configure(&mut self, config: &toml::Value);
 }
 
@@ -192,6 +206,16 @@ pub trait Animation {
 pub struct Cursor {
 	pub pressed: bool,
 	pub pos: Vec2
+}
+
+pub fn seeded_frame() -> Frame {
+	let content = pull_seed_content();
+	let (cols,rows) = crossterm::terminal::size().unwrap_or((80, 24));
+	let mut builder = FrameBuilder::new(cols as usize, rows as usize);
+	builder.feed_bytes(content.as_bytes());
+	let mut frame = builder.build();
+	frame.resize(cols as usize, rows as usize);
+	frame
 }
 
 #[derive(Default,Clone,Debug,Hash)]
@@ -219,15 +243,6 @@ impl Frame {
 		builder.feed_bytes(b"\x1b[?25l"); // hide cursor
 		builder.feed_bytes(b"\x1b[2J"); // clear screen
 		builder.feed_bytes(b"\x1b[H"); // move cursor to top-left
-		let mut frame = builder.build();
-		frame.resize(cols as usize, rows as usize);
-		frame
-	}
-	pub fn seeded() -> Self {
-		let content = pull_seed_content();
-		let (cols,rows) = crossterm::terminal::size().unwrap_or((80, 24));
-		let mut builder = FrameBuilder::new(cols as usize, rows as usize);
-		builder.feed_bytes(content.as_bytes());
 		let mut frame = builder.build();
 		frame.resize(cols as usize, rows as usize);
 		frame
@@ -295,6 +310,9 @@ impl FrameBuilder {
 		parser.advance(self, bytes);
 		self.parser = parser;
 	}
+	pub fn feed_str(&mut self, s: &str) {
+		self.feed_bytes(s.as_bytes());
+	}
 	pub fn build(self) -> Frame {
 		Frame(self.cells)
 	}
@@ -311,7 +329,7 @@ impl vte::Perform for FrameBuilder {
 			self.rows += 1;
 		}
 	  let cell = Cell {
-			ch: c,
+			ch: c.into(),
 			fg: self.current_fg,
 			bg: self.current_bg,
 			flags: self.current_flags
@@ -409,11 +427,33 @@ impl vte::Perform for FrameBuilder {
 	}
 }
 
+pub struct RawModeGuard;
+
+impl RawModeGuard {
+	pub fn enter() -> std::io::Result<Self> {
+		let mut stdout = std::io::stdout();
+		execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide)?;
+		terminal::enable_raw_mode()?;
+
+		Ok(Self)
+	}
+}
+
+impl Drop for RawModeGuard {
+	fn drop(&mut self) {
+		let mut stdout = std::io::stdout();
+		execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show).ok();
+		terminal::disable_raw_mode().ok();
+	}
+}
+
 pub struct Animator {
 	animation: Box<dyn Animation>,
-	animation_time: f32, // time in seconds before the animation is forced to end.
-	config: toml::Value,
 	last_frame: Option<Frame>,
+	raw_mode_state: Option<RawModeGuard>,
+	frame_rate: usize,
+	last_cols: u16,
+	last_rows: u16,
 	out_channel: Stdout,
 	start: Instant
 }
@@ -422,101 +462,185 @@ impl Animator {
 	const TARGET_FRAME_RATE: u64 = 24;
 	pub const WAIT_TIME: u64 = 3;
 
-	pub fn new(mut animation: Box<dyn Animation>, config: &toml::Value) -> Self {
-		let frame = animation.initial_frame();
-		let animation_time = config.get("animation_time").and_then(|t| t.as_float()).unwrap_or(0.0) as f32;
-		log::debug!("Initial frame dimensions: {:?}", frame.dims());
-		animation.init(frame);
-		animation.configure(config);
+	pub fn new(animation: Box<dyn Animation>) -> Self {
+		let (last_cols, last_rows) = crossterm::terminal::size().unwrap_or((80, 24));
 		Self {
 			animation,
-			animation_time,
-			config: config.clone(),
 			last_frame: None,
+			raw_mode_state: None,
+			frame_rate: 24,
+			last_cols,
+			last_rows,
 			out_channel: std::io::stdout(),
 			start: Instant::now()
 		}
 	}
 
-	pub fn play(&mut self) -> bool {
-		{
-			let mut stdout = std::io::stdout();
-			execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide).unwrap();
-			terminal::enable_raw_mode().unwrap();
-		}
-		let (mut last_cols, mut last_rows) = crossterm::terminal::size().unwrap_or((80, 24));
-		loop {
-			let tick_start = Instant::now();
-			if self.config.get("screensaver_mode").and_then(|v| v.as_bool()).unwrap_or(false)
-			&& crossterm::event::poll(Duration::ZERO).unwrap_or(false) {
-				return false
-			}
-
-			let (cols, rows) = crossterm::terminal::size().unwrap_or((last_cols, last_rows));
-			if cols != last_cols || rows != last_rows {
-				self.animation.resize(cols as usize, rows as usize);
-				self.last_frame = None; // force full redraw
-				last_cols = cols;
-				last_rows = rows;
-			}
-
-			let frame = self.animation.update(self.start.elapsed());
-			self.render(frame);
-
-			let tick_duration = tick_start.elapsed().as_millis();
-			let target = 1000 / Self::TARGET_FRAME_RATE; // ms per frame
-			let sleep_time = target.saturating_sub(tick_duration as u64);
-
-			if sleep_time > 0 {
-				std::thread::sleep(Duration::from_millis(sleep_time));
-			}
-
-			if self.animation.is_done()
-			|| (self.animation_time > 0.0 && self.start.elapsed().as_secs_f32() > self.animation_time) {
-				break;
-			}
-		}
-
-		true
+	pub fn target_fps(mut self, fps: usize) -> Self {
+		self.frame_rate = fps;
+		self
 	}
 
-	fn render(&mut self, frame: Frame) {
+	pub fn enter_with(animation: Box<dyn Animation>) -> std::io::Result<Self> {
+		let mut new = Self::new(animation);
+		new.enter()?;
+		Ok(new)
+	}
+
+	pub fn enter(&mut self) -> std::io::Result<()> {
+		let guard = RawModeGuard::enter();
+		self.raw_mode_state = Some(guard?);
+		Ok(())
+	}
+
+	pub fn leave(&mut self) {
+		self.raw_mode_state = None; // dropping the guard will restore the terminal state
+	}
+
+	pub fn tick(&mut self) -> anyhow::Result<bool> {
+		let tick_start = Instant::now();
+
+		let (cols, rows) = crossterm::terminal::size().unwrap_or((self.last_cols, self.last_rows));
+		if cols != self.last_cols || rows != self.last_rows {
+			self.animation.resize(cols as usize, rows as usize);
+			self.last_frame = None; // force full redraw
+			self.last_cols = cols;
+			self.last_rows = rows;
+		}
+
+		let frame = self.animation.update(self.start.elapsed());
+		self.render(frame)?;
+
+		let tick_duration = tick_start.elapsed().as_millis();
+		let target = 1000 / Self::TARGET_FRAME_RATE; // ms per frame
+		let sleep_time = target.saturating_sub(tick_duration as u64);
+
+		if sleep_time > 0 {
+			std::thread::sleep(Duration::from_millis(sleep_time));
+		}
+
+		Ok(!self.animation().is_done())
+	}
+
+	pub fn animation(&self) -> &dyn Animation {
+		&*self.animation
+	}
+
+	#[allow(clippy::needless_range_loop)]
+	fn render(&mut self, frame: Frame) -> anyhow::Result<()> {
 		let Frame(cells) = frame;
 		let rows = cells.len();
 		if rows == 0 {
-			return;
+			return Ok(());
 		}
 		let cols = cells[0].len();
 
 		for row in 0..rows {
 			for col in 0..cols {
 				if let Some(Frame(last_frame)) = self.last_frame.as_ref() {
-					if last_frame[row][col] != cells[row][col] {
+					if last_frame.get(row).and_then(|r| r.get(col)) != Some(&cells[row][col]) {
 						// move to row, col, write the cell
 						let cell = &cells[row][col];
-						queue!(self.out_channel, cursor::MoveTo(col as u16, row as u16)).unwrap();
-						write!(self.out_channel, "{cell}").unwrap();
+						queue!(self.out_channel, cursor::MoveTo(col as u16, row as u16))?;
+						write!(self.out_channel, "{cell}")?;
 					}
 				} else {
 					let cell = &cells[row][col];
-					queue!(self.out_channel, cursor::MoveTo(col as u16, row as u16)).unwrap();
-					write!(self.out_channel, "{cell}").unwrap();
+					queue!(self.out_channel, cursor::MoveTo(col as u16, row as u16))?;
+					write!(self.out_channel, "{cell}")?;
 				}
 			}
 		}
-		self.out_channel.flush().unwrap();
+		self.out_channel.flush()?;
 
 		self.last_frame = Some(Frame(cells));
+
+		Ok(())
 	}
 }
 
-impl Drop for Animator {
-	fn drop(&mut self) {
-		let mut stdout = std::io::stdout();
-		execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show).unwrap();
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A single grapheme. Graphemes can be composed of multiple chars, but are always treated as a single unit for display and editing purposes.
+/// Using a SmallVec<[char; 4]> allows us to organize most multi-byte codepoints while maintaining both ownership and stack allocation.
+/// If we ever run into a Grapheme made of more than 4 chars, just that Grapheme will gracefully spill over onto the heap
+pub struct Grapheme(SmallVec<[char; 4]>);
+
+impl Grapheme {
+  pub fn chars(&self) -> &[char] {
+    &self.0
+  }
+  /// Returns the display width of the Grapheme, treating unprintable chars as width 0
+  pub fn width(&self) -> usize {
+    self.0.iter().map(|c| c.width().unwrap_or(0)).sum()
+  }
+  /// Returns true if the Grapheme is wrapping a linefeed ('\n')
+  pub fn is_lf(&self) -> bool {
+    self.is_char('\n')
+  }
+  /// Returns true if the Grapheme consists of exactly one char and that char is equal to `c`
+  pub fn is_char(&self, c: char) -> bool {
+    self.0.len() == 1 && self.0[0] == c
+  }
+  /// If the Grapheme consists of exactly one char, returns that char. Otherwise, returns None.
+  /// All callsites that use this method operate on ascii, so never returning anything for multibyte sequences is fine.
+  pub fn as_char(&self) -> Option<char> {
+    if self.0.len() == 1 {
+      Some(self.0[0])
+    } else {
+      None
+    }
+  }
+
+	pub fn is_whitespace(&self) -> bool {
+		self.0.iter().all(|c| c.is_whitespace())
 	}
 }
 
+impl From<char> for Grapheme {
+  fn from(value: char) -> Self {
+    let mut new = SmallVec::<[char; 4]>::new();
+    new.push(value);
+    Self(new)
+  }
+}
+
+impl From<&str> for Grapheme {
+  fn from(value: &str) -> Self {
+    assert_eq!(value.graphemes(true).count(), 1);
+    let mut new = SmallVec::<[char; 4]>::new();
+    for char in value.chars() {
+      new.push(char);
+    }
+    Self(new)
+  }
+}
+
+impl From<String> for Grapheme {
+  fn from(value: String) -> Self {
+    Into::<Self>::into(value.as_str())
+  }
+}
+
+impl From<&String> for Grapheme {
+  fn from(value: &String) -> Self {
+    Into::<Self>::into(value.as_str())
+  }
+}
+
+impl Display for Grapheme {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    for ch in &self.0 {
+      write!(f, "{ch}")?;
+    }
+    Ok(())
+  }
+}
+
+pub fn to_graphemes(s: impl ToString) -> Vec<Grapheme> {
+  let s = s.to_string();
+  s.graphemes(true).map(Grapheme::from).collect()
+}
 bitflags! {
 	#[derive(Default,Clone,Copy,Debug,PartialEq,Eq,Hash)]
 	pub struct CellFlags: u32 {
@@ -533,7 +657,7 @@ bitflags! {
 
 #[derive(Clone,Debug,PartialEq,Eq,Hash)]
 pub struct Cell {
-	pub ch: char,
+	pub ch: Grapheme,
 	pub fg: Color,
 	pub bg: Color,
 	pub flags: CellFlags
@@ -542,7 +666,7 @@ pub struct Cell {
 impl Default for Cell {
 	fn default() -> Self {
 		Self {
-			ch: ' ',
+			ch: ' '.into(),
 			fg: Color::Reset,
 			bg: Color::Reset,
 			flags: CellFlags::empty()
@@ -571,7 +695,7 @@ impl Cell {
 	}
 
 	pub fn with_char(mut self, ch: char) -> Self {
-		self.ch = ch;
+		self.ch = ch.into();
 		self
 	}
 
@@ -588,7 +712,7 @@ impl Cell {
 	}
 
 	pub fn set_char(&mut self, ch: char) {
-		self.ch = ch;
+		self.ch = ch.into();
 	}
 }
 
@@ -632,7 +756,7 @@ impl Display for Cell {
 impl From<char> for Cell {
 	fn from(value: char) -> Self {
 		Self {
-			ch: value,
+			ch: value.into(),
 			fg: Color::Reset,
 			bg: Color::Reset,
 			flags: CellFlags::empty()

@@ -2,7 +2,7 @@ use std::{f64::consts::PI, time::Instant};
 
 use crossterm::style::Color;
 
-use crate::anim::{Animation, Cell, Frame, saturn::romparse::{DistortionEffect, SaturnBgData}};
+use crate::{Hat, anim::{Animation, WhoaAnimation, Cell, Frame, saturn::romparse::{DistortionEffect, SaturnBgData}}};
 
 pub mod romparse;
 
@@ -20,6 +20,7 @@ pub struct Saturn {
 	palette: Vec<[u8; 3]>, // current palette (mutated by cycling)
 	bg_index: usize,
 	bg_indexes: Vec<usize>, // user-configured list of background indices to choose from (if empty, all are used)
+	valid_indexes: Hat<usize>,
 	effect_index: usize,
 	data: SaturnBgData,
 	orig: Frame,
@@ -49,8 +50,8 @@ impl Saturn {
 		Self::from_data(data, true)
 	}
 	pub fn from_data(data: SaturnBgData, no_giygas: bool) -> Self {
-		let valid_indices = data.valid_indices(no_giygas);
-		let bg_index = valid_indices[rand::random_range(0..valid_indices.len())];
+		let mut valid_indexes = Hat::new(data.valid_indices(no_giygas));
+		let bg_index = valid_indexes.next().unwrap_or_default();
 		//let bg_index = 302;
 		let effect_index = rand::random_range(0..4);
 		let framebuf = data.get_framebuffer(bg_index);
@@ -67,6 +68,7 @@ impl Saturn {
 			last_reroll: Instant::now(),
 			no_giygas: true,
 			bg_indexes: Vec::new(),
+			valid_indexes,
 			orig: Frame::default(),
 			interm: Frame::default(),
 			rows: 0,
@@ -79,11 +81,7 @@ impl Saturn {
 
 	/// Roll a random background index and construct the relevant fields
 	pub fn reroll(&mut self) {
-		let mut valid = self.data.valid_indices(self.no_giygas);
-		if !self.bg_indexes.is_empty() {
-			valid.retain(|idx| self.bg_indexes.contains(idx))
-		}
-		self.bg_index = valid[rand::random_range(0..valid.len())];
+		self.bg_index = self.valid_indexes.next().unwrap_or_default();
 		self.framebuf = self.data.get_framebuffer(self.bg_index);
 		self.palette = self.data.get_palette(self.bg_index);
 		self.speed_x = self.data.backgrounds[self.bg_index].movement[0];
@@ -91,6 +89,14 @@ impl Saturn {
 		self.speed_y = self.data.backgrounds[self.bg_index].movement[1];
 		self.scroll_y = 0;
 		self.effect_index = rand::random_range(0..4);
+	}
+
+	pub fn new_hat(&mut self) {
+		let valid = self.data.valid_indices(self.no_giygas)
+			.into_iter()
+			.filter(|v| self.bg_indexes.is_empty() || self.bg_indexes.contains(v))
+			.collect::<Vec<_>>();
+		self.valid_indexes = Hat::new(valid);
 	}
 
 	/// Set the background index to a specific value, and construct the relevant fields
@@ -107,7 +113,7 @@ impl Saturn {
 		self.effect_index = rand::random_range(0..4);
 	}
 }
-impl Animation for Saturn {
+impl WhoaAnimation for Saturn {
 	fn configure(&mut self, config: &toml::Value) {
 		let Some(config) = config.get("saturn") else { return };
 
@@ -119,18 +125,19 @@ impl Animation for Saturn {
 			.map(|arr| arr.iter().filter_map(|v| v.as_integer().map(|i| i as usize)).collect())
 			.unwrap_or_default();
 
-		let old_no_giygas = self.no_giygas;
 		self.no_giygas = config.get("no_giygas")
 			.unwrap_or(&toml::Value::Boolean(true)).as_bool().unwrap_or(true);
 
-		if !self.no_giygas && (self.no_giygas != old_no_giygas) {
-			self.reroll();
-		}
+		self.new_hat();
+		self.reroll();
 
 		if let Some(idx) = config.get("bg_index").and_then(|v| v.as_integer()) {
 			self.set_index(idx as usize);
 		}
 	}
+}
+
+impl Animation for Saturn {
 	fn init(&mut self, initial: Frame) {
 		self.reroll();
 

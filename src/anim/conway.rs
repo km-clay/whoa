@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::{Duration, Instant}};
 
-use crate::anim::{Animation, Cell, Frame};
+use crate::anim::{Animation, WhoaAnimation, Cell, Frame, seeded_frame};
 
 pub struct Conway {
 	last_tick: Instant,
@@ -27,9 +27,9 @@ impl Conway {
 	pub fn reproduce(cells: &[Cell]) -> Cell {
 		let [parent1, parent2, parent3] = cells else { panic!("Exactly 3 cells must be provided") };
 		let glyphs = [
-			parent1.ch,
-			parent2.ch,
-			parent3.ch
+			parent1.ch.clone(),
+			parent2.ch.clone(),
+			parent3.ch.clone()
 		];
 		let fg_colors = [
 			parent1.fg,
@@ -51,7 +51,7 @@ impl Conway {
 		let bg_i: usize = rand::random_range(0..3);
 		let flags_i: usize = rand::random_range(0..3);
 		Cell {
-			ch: glyphs[glyph_i],
+			ch: glyphs[glyph_i].clone(),
 			fg: fg_colors[fg_i],
 			bg: bg_colors[bg_i],
 			flags: flags[flags_i]
@@ -76,7 +76,7 @@ impl Default for Conway {
 	}
 }
 
-impl Animation for Conway {
+impl WhoaAnimation for Conway {
 	fn configure(&mut self, config: &toml::Value) {
 		let Some(config) = config.get("conway") else { return };
 		let stale_ticks = config.get("stale_ticks")
@@ -87,8 +87,10 @@ impl Animation for Conway {
 		self.stale_ticks = stale_ticks;
 		self.tick_rate = tick_rate as usize;
 	}
+}
 
-	fn initial_frame(&self) -> Frame { Frame::seeded() }
+impl Animation for Conway {
+	fn initial_frame(&self) -> Frame { seeded_frame() }
 	fn init(&mut self, initial: Frame) {
 		self.frame = initial;
 	}

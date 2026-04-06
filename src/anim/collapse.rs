@@ -1,5 +1,5 @@
 use std::{str::FromStr, time::{Duration, Instant}};
-use crate::anim::{Animation, Frame};
+use crate::anim::{Animation, WhoaAnimation, Frame, seeded_frame};
 
 #[derive(Default,Debug)]
 enum Direction {
@@ -47,7 +47,7 @@ impl Default for Collapse {
 	}
 }
 
-impl Animation for Collapse {
+impl WhoaAnimation for Collapse {
 	fn configure(&mut self, config: &toml::Value) {
 		let Some(config) = config.get("collapse") else { return };
 		let Some(direction) = config.get("direction") else { return };
@@ -58,7 +58,10 @@ impl Animation for Collapse {
 			Err(e) => log::error!("Failed to parse direction: {e}")
 		};
 	}
-	fn initial_frame(&self) -> Frame { Frame::seeded() }
+}
+
+impl Animation for Collapse {
+	fn initial_frame(&self) -> Frame { seeded_frame() }
 	fn init(&mut self, initial: Frame) {
 		self.frame = initial;
 	}

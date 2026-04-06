@@ -1,4 +1,4 @@
-use crate::anim::{Animation, Frame};
+use crate::anim::{Animation, WhoaAnimation, Frame, seeded_frame};
 
 pub struct Cosine {
 	orig: Frame,
@@ -26,13 +26,16 @@ impl Default for Cosine {
 	}
 }
 
-impl Animation for Cosine {
+impl WhoaAnimation for Cosine {
 	fn configure(&mut self, config: &toml::Value) {
 		let Some(config) = config.get("cosine") else { return };
 		self.speed = config.get("speed")
 			.unwrap_or(&toml::Value::Float(1.0)).as_float().unwrap_or(1.0);
 	}
-	fn initial_frame(&self) -> Frame { Frame::seeded() }
+}
+
+impl Animation for Cosine {
+	fn initial_frame(&self) -> Frame { seeded_frame() }
 	fn init(&mut self, initial: Frame) {
 		let (rows,cols) = initial.dims().unwrap_or((0,0));
 		self.orig = initial.clone();
