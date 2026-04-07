@@ -44,7 +44,6 @@ impl Animation for Cosine {
 		self.cols = cols;
 	}
 
-	#[allow(clippy::needless_range_loop)]
 	fn update(&mut self, dt: std::time::Duration) -> Frame {
 		let cells = self.orig.cells();
 		let seconds = dt.as_secs_f64();

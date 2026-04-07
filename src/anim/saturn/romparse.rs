@@ -303,7 +303,6 @@ impl SaturnBgData {
 		palettes
 	}
 
-	#[allow(clippy::needless_range_loop)]
 	fn get_tilesets(rom: &[u8], bpp_map: &HashMap<u8, u8>) -> Vec<Option<TileSet>> {
 		let mut tilesets = vec![];
 
@@ -350,7 +349,6 @@ impl SaturnBgData {
 		tilesets
 	}
 
-	#[allow(clippy::needless_range_loop)]
 	fn get_arrangements(rom: &[u8]) -> Vec<Arrangement> {
 		let mut arrangements = vec![];
 
@@ -421,7 +419,6 @@ impl SaturnBgData {
 		Some(*byte)
 	}
 
-	#[allow(clippy::get_first)]
 	fn read_two(data: &mut &[u8]) -> Option<[u8;2]> {
 		let byte1 = data.get(0)?;
 		let byte2 = data.get(1)?;
@@ -429,7 +426,6 @@ impl SaturnBgData {
 		Some([*byte1, *byte2])
 	}
 
-	#[allow(clippy::get_first)]
 	fn read_four(data: &mut &[u8]) -> Option<[u8;4]> {
 		let byte1 = data.get(0)?;
 		let byte2 = data.get(1)?;

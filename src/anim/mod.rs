@@ -22,7 +22,6 @@ pub struct Gradient {
 }
 
 impl Gradient {
-	#[allow(clippy::get_first)]
 	pub fn from_value(val: &Value) -> anyhow::Result<Self> {
 		let Some(cfg) = val.as_table() else {
 			anyhow::bail!("Gradient config must be a table");

@@ -2,6 +2,7 @@ use std::{f64::consts::PI, time::Instant};
 
 use cellophane::{Cell, Frame};
 use crossterm::style::Color;
+use rand::Rng;
 
 use crate::{Hat, anim::{Animation, WhoaAnimation, saturn::romparse::{DistortionEffect, SaturnBgData}}};
 
@@ -54,7 +55,7 @@ impl Saturn {
 		let mut valid_indexes = Hat::new(data.valid_indices(no_giygas));
 		let bg_index = valid_indexes.next().unwrap_or_default();
 		//let bg_index = 302;
-		let effect_index = rand::random_range(0..4);
+		let effect_index = rand::thread_rng().gen_range(0..4);
 		let framebuf = data.get_framebuffer(bg_index);
 		let palette = data.get_palette(bg_index);
 		Self {
@@ -89,7 +90,7 @@ impl Saturn {
 		self.scroll_x = 0;
 		self.speed_y = self.data.backgrounds[self.bg_index].movement[1];
 		self.scroll_y = 0;
-		self.effect_index = rand::random_range(0..4);
+		self.effect_index = rand::thread_rng().gen_range(0..4);
 	}
 
 	pub fn new_hat(&mut self) {
@@ -111,7 +112,7 @@ impl Saturn {
 		self.scroll_x = 0;
 		self.speed_y = self.data.backgrounds[self.bg_index].movement[1];
 		self.scroll_y = 0;
-		self.effect_index = rand::random_range(0..4);
+		self.effect_index = rand::thread_rng().gen_range(0..4);
 	}
 }
 impl WhoaAnimation for Saturn {

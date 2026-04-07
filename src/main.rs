@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::get_first)]
 use std::{cell::RefCell, collections::HashMap, env, io::{self,IsTerminal}, path::PathBuf, time::Duration};
 
 use cellophane::{Animation, Animator};
@@ -103,7 +105,7 @@ impl<T: Clone> Hat<T> {
 
 	fn get_hat(len: usize) -> Vec<usize> {
 		let mut hat: Vec<usize> = (0..len).collect();
-		let mut rng = rand::rng();
+		let mut rng = rand::thread_rng();
 		hat.shuffle(&mut rng);
 		hat
 	}
@@ -499,12 +501,6 @@ fn init_panic_handler() {
 fn main() -> anyhow::Result<()> {
 	init_panic_handler();
 	env_logger::init();
-	ctrlc::set_handler(|| {
-		let mut stdout = io::stdout();
-		execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show).ok();
-		terminal::disable_raw_mode().ok();
-		std::process::exit(0);
-	}).unwrap();
 	gen_config_file().unwrap();
 
 	let config = get_config()?;

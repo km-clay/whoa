@@ -1,6 +1,7 @@
 use std::{collections::HashMap, hash::{DefaultHasher, Hash, Hasher}, time::{Duration, Instant}};
 
 use cellophane::{Animation, Cell, Frame};
+use rand::Rng;
 
 use crate::anim::{WhoaAnimation, seeded_frame};
 
@@ -48,10 +49,10 @@ impl Conway {
 			parent2.flags(),
 			parent3.flags()
 		];
-		let glyph_i: usize = rand::random_range(0..3);
-		let fg_i: usize = rand::random_range(0..3);
-		let bg_i: usize = rand::random_range(0..3);
-		let flags_i: usize = rand::random_range(0..3);
+		let glyph_i: usize = rand::thread_rng().gen_range(0..3);
+		let fg_i: usize = rand::thread_rng().gen_range(0..3);
+		let bg_i: usize = rand::thread_rng().gen_range(0..3);
+		let flags_i: usize = rand::thread_rng().gen_range(0..3);
 		Cell::new(
 			glyphs[glyph_i].clone(),
 			fg_colors[fg_i],
@@ -99,7 +100,6 @@ impl Animation for Conway {
 		self.frame = initial;
 	}
 
-	#[allow(clippy::needless_range_loop)]
 	fn update(&mut self, _dt: Duration) -> Frame {
 		if self.last_tick.elapsed().as_millis() <= (1000 / self.tick_rate as u128) {
 			return self.frame.clone();

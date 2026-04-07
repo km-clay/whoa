@@ -1,5 +1,6 @@
 use std::{str::FromStr, time::{Duration, Instant}};
-use rand::random_range;
+use rand::Rng;
+
 use crate::anim::{Animation, WhoaAnimation, Frame, seeded_frame};
 
 #[derive(Default,Debug,Clone,Copy)]
@@ -15,7 +16,7 @@ enum Direction {
 impl Direction {
 	fn resolve(self) -> Self {
 		if let Direction::Random = self {
-			match random_range(0..4u8) {
+			match rand::thread_rng().gen_range(0..4u8) {
 				0 => Direction::Down,
 				1 => Direction::Up,
 				2 => Direction::Left,
