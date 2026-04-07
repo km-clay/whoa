@@ -9,7 +9,7 @@ A terminal screensaver with multiple visual effects, powered by [cellophane](htt
 - **perlin** - Flowing Perlin noise visualized with Braille characters and color gradients
 - **slime** - Physarum slime mold simulation with emergent patterns
 - **maelstrom** - Text that swirls into a spiral vortex
-- **conway** - Conway's Game of Life with genetic cell reproduction
+- **conway** - Conway's Game of Life with terminal cell genetics
 - **collapse** - Text collapses under gravity in a configurable direction
 - **cosine** - Undulating wave effect driven by cosine functions
 - **saturn** - EarthBound battle backgrounds rendered in the terminal with parallax scrolling and distortion
