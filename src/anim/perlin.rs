@@ -13,6 +13,7 @@ pub struct PerlinNoise {
 	noise: Perlin,
 	texture: Vec<char>,
 	speed: f32,
+	density_clamp: usize,
 	scale: f64,
 	x_delta: f64,
 	y_delta: f64,
@@ -35,6 +36,7 @@ impl PerlinNoise {
 			interm: Default::default(),
 			gradient: Gradient::aurora(),
 			noise: Perlin::new(now),
+			density_clamp: 255,
 			speed: 0.30,
 			scale: 1.0,
 			texture,
@@ -60,6 +62,9 @@ impl WhoaAnimation for PerlinNoise {
 			.unwrap_or(&toml::Value::Float(0.30)).as_float().unwrap_or(0.30) as f32;
 		self.scale = config.get("scale")
 			.unwrap_or(&toml::Value::Float(1.0)).as_float().unwrap_or(1.0);
+		self.density_clamp = config.get("density_clamp")
+			.unwrap_or(&toml::Value::Integer(255)).as_integer().unwrap_or(255) as usize;
+
 		let gradient_name = config.get("gradient")
 			.cloned()
 			.unwrap_or(toml::Value::String("aurora".to_string()));
@@ -71,7 +76,7 @@ impl WhoaAnimation for PerlinNoise {
 }
 
 impl Animation for PerlinNoise {
-	fn init(&mut self, initial: Frame) {
+	fn init_with(&mut self, initial: Frame) {
 		let (rows,cols) = initial.dims().unwrap_or((0,0));
 		self.interm = initial.clone();
 		self.orig = initial;
@@ -94,7 +99,10 @@ impl Animation for PerlinNoise {
 				let g = &self.gradient;
 				let color = g.sample(t);
 
-				let index = index.clamp(0,self.texture.len() as i32 - 1);
+				let mut index = index.clamp(0,self.texture.len() as i32 - 1);
+				if index > self.density_clamp as i32 {
+					index = self.texture.len() as i32 - 1;
+				}
 				if index >= 0 {
 					let mut cell = Cell::from(self.texture[index as usize]);
 					cell.set_fg(color);

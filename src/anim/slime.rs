@@ -65,7 +65,7 @@ impl WhoaAnimation for SlimeMold {
 }
 
 impl Animation for SlimeMold {
-	fn init(&mut self, initial: Frame) {
+	fn init_with(&mut self, initial: Frame) {
 		let (rows, cols) = initial.dims().unwrap_or((0, 0));
 		self.rows = rows;
 		self.cols = cols;

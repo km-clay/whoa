@@ -73,6 +73,9 @@ enum AnimCmd {
 	Collapse {
 		#[arg(long, help = "The direction the text should fall towards. Options are: up, down, left, right, and random")]
 		direction: Option<String>
+	},
+	Spiral {
+
 	}
 }
 
@@ -328,6 +331,13 @@ fn gen_config_file() -> anyhow::Result<()> {
 		[perlin] # perlin noise
 		gradient = "ocean"
 		speed = 0.3
+		density_clamp = 255 # rounds density values above this threshold up to the maximum
+                        # max value is 255, min is 0
+
+		[spiral] # spiral pattern
+		gradient = "vapor"
+		speed = 1.0
+		density_clamp = 255
 
 		[cosine] # cosine wave
 		speed = 1.0
@@ -370,6 +380,24 @@ fn config_file_path() -> Option<PathBuf> {
 		.map(|dir| dir.join("whoa").join("config.toml"))
 }
 
+fn ensure_config_tables(config: &mut toml::Value) {
+	let animations = [
+		"saturn",
+		"perlin",
+		"slime",
+		"maelstrom",
+		"conway",
+		"collapse",
+		"cosine",
+		"spiral"
+	];
+	for animation in animations {
+		if config.get(animation).is_none() {
+			config[animation] = Value::Table(toml::value::Table::new());
+		}
+	}
+}
+
 fn get_config() -> anyhow::Result<toml::Value> {
 	let args = WhoaArgs::parse();
 
@@ -383,6 +411,7 @@ fn get_config() -> anyhow::Result<toml::Value> {
 			anyhow::bail!("Failed to read config file: {e}");
 		}
 	};
+	ensure_config_tables(&mut config);
 
 	if let Some(cmd) = args.animation {
 		// The user has requested a specific animation
@@ -482,6 +511,11 @@ fn get_config() -> anyhow::Result<toml::Value> {
 					collapse_cfg.insert("direction".to_string(), Value::String(direction));
 				}
 			}
+			AnimCmd::Spiral {} => {
+				if let Some(Value::Array(anims)) = config.get_mut("enabled_animations") {
+					anims.push(Value::String("spiral".to_string()));
+				}
+			}
 		}
 	}
 
@@ -529,6 +563,7 @@ fn main() -> anyhow::Result<()> {
 				"conway" => || { Box::new(anim::conway::Conway::new()) as Box<dyn WhoaAnimation> },
 				"collapse" => || { Box::new(anim::collapse::Collapse::new()) as Box<dyn WhoaAnimation> },
 				"cosine" => || { Box::new(anim::cos::Cosine::new()) as Box<dyn WhoaAnimation> },
+				"spiral" => || { Box::new(anim::spiral::Spiral::new()) as Box<dyn WhoaAnimation> },
 				_ => {
 					eprintln!("Invalid animation name: {}, defaulting to saturn",v.as_str()?);
 					|| { Box::new(anim::saturn::Saturn::new()) as Box<dyn WhoaAnimation> }
@@ -541,7 +576,7 @@ fn main() -> anyhow::Result<()> {
 	'outer: for anim_fn in hat {
 		// call the closure to produce the boxed Animation
 		let mut animation = anim_fn();
-		animation.init(animation.initial_frame());
+		animation.init();
 		animation.configure(&config);
 
 		let animation: Box<dyn Animation> = animation;
@@ -554,8 +589,13 @@ fn main() -> anyhow::Result<()> {
 
 		loop {
 			if config.get("screensaver_mode").and_then(|v| v.as_bool()).unwrap_or(false)
-			&& crossterm::event::poll(Duration::ZERO).unwrap_or(false) {
-				break 'outer
+			&& crossterm::event::poll(Duration::ZERO).unwrap_or(false)
+			&& let Ok(event) = crossterm::event::read() {
+				if event.is_key_press() {
+					break 'outer
+				} else {
+					animator.enqueue_event(event);
+				}
 			}
 
 			match animator.tick() {

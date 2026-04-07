@@ -142,9 +142,9 @@ dependencies = [
 
 [[package]]
 name = "cellophane"
-version = "0.2.0"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f73ac40c0d83a8c0b3b7232065baa02f99e07952112694593c51f1993edb77da"
+checksum = "576e23e3eb14dc90fc19bc892d0cf429508530ff9e441bcef6d295faf7691a22"
 dependencies = [
  "bitflags",
  "crossterm",
@@ -1125,7 +1125,7 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "whoa"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cellophane",

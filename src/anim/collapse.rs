@@ -81,7 +81,7 @@ impl WhoaAnimation for Collapse {
 
 impl Animation for Collapse {
 	fn initial_frame(&self) -> Frame { seeded_frame() }
-	fn init(&mut self, initial: Frame) {
+	fn init_with(&mut self, initial: Frame) {
 		self.frame = initial;
 	}
 	fn update(&mut self) -> Frame {

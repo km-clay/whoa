@@ -140,7 +140,7 @@ impl WhoaAnimation for Saturn {
 }
 
 impl Animation for Saturn {
-	fn init(&mut self, initial: Frame) {
+	fn init_with(&mut self, initial: Frame) {
 		self.reroll();
 
 		let (rows,cols) = initial.dims().unwrap_or((0,0));
@@ -154,8 +154,7 @@ impl Animation for Saturn {
 		if self.anim_lifetime > 0.0 && self.last_reroll.elapsed().as_secs_f64() > self.anim_lifetime {
 			log::debug!("re-rolling animation");
 			// re-roll animation
-			let frame = self.initial_frame();
-			self.init(frame);
+			self.init();
 			self.last_reroll = Instant::now();
 		}
 

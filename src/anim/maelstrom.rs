@@ -55,7 +55,7 @@ impl WhoaAnimation for Maelstrom {
 }
 
 impl Animation for Maelstrom {
-	fn init(&mut self, initial: Frame) {
+	fn init_with(&mut self, initial: Frame) {
 		let (rows,cols) = initial.dims().unwrap_or((0,0));
 		self.orig = initial.clone();
 		self.interm = initial;

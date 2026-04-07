@@ -14,6 +14,7 @@ pub mod perlin;
 pub mod collapse;
 pub mod maelstrom;
 pub mod conway;
+pub mod spiral;
 
 #[derive(Clone, Debug)]
 pub struct Gradient {

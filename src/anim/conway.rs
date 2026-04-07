@@ -96,7 +96,7 @@ impl WhoaAnimation for Conway {
 
 impl Animation for Conway {
 	fn initial_frame(&self) -> Frame { seeded_frame() }
-	fn init(&mut self, initial: Frame) {
+	fn init_with(&mut self, initial: Frame) {
 		self.frame = initial;
 	}
 
