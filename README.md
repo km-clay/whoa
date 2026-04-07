@@ -86,6 +86,11 @@ Animations that display text (maelstrom, conway, collapse, cosine) pull content 
 4. **`WHOA_FILE_READER`** - custom command for reading files (e.g. `bat --force-colorization`)
 5. **Fallback** - whoa's own source code, highlighted by [syntect](https://github.com/trishume/syntect)
 
+## Credits
+
+- **saturn** - Based on research by Mr. Accident of forum.starmen.net documenting the EarthBound battle background system, and [gjtorikian](https://github.com/gjtorikian/Earthbound-Battle-Backgrounds-JS)'s JavaScript implementation.
+- **slime** - Ported from [zspotter](https://twitter.com/zspotter)'s [slime_dish](https://play.ertdfgcvb.xyz/#/src/contributed/slime_dish) implementation. Based on [Sage Jenson's physarum work](https://sagejenson.com/physarum) and [Jones 2010](https://uwe-repository.worktribe.com/output/980579).
+
 ## License
 
 MIT
