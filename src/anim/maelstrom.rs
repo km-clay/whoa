@@ -1,4 +1,4 @@
-use std::{ops::Add, time::Duration};
+use std::{ops::Add, time::{Instant}};
 
 use glam::{Mat2, Vec2};
 
@@ -12,6 +12,7 @@ pub struct Maelstrom {
 	speed_max: f32,
 	rows: usize,
 	cols: usize,
+	start: Instant,
 
 	center: Vec2
 }
@@ -29,6 +30,7 @@ impl Maelstrom {
 			speed_max: 1.0,
 			rows: 0,
 			cols: 0,
+			start: Instant::now(),
 			center
 		}
 	}
@@ -63,12 +65,12 @@ impl Animation for Maelstrom {
 
 	fn initial_frame(&self) -> Frame { seeded_frame() }
 
-	fn update(&mut self, dt: Duration) -> Frame {
-		if dt.as_secs_f32() < self.wait_time {
+	fn update(&mut self) -> Frame {
+		if self.start.elapsed().as_secs_f32() < self.wait_time {
 			return self.interm.clone();
 		}
 		let cells = self.orig.cells();
-		let seconds = dt.as_secs_f32() - self.wait_time;
+		let seconds = self.start.elapsed().as_secs_f32() - self.wait_time;
 
 		for (y,row) in cells.iter().enumerate() {
 			for (x,_) in row.iter().enumerate() {

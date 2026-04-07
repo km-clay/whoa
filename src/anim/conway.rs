@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::{DefaultHasher, Hash, Hasher}, time::{Duration, Instant}};
+use std::{collections::HashMap, hash::{DefaultHasher, Hash, Hasher}, time::{Instant}};
 
 use cellophane::{Animation, Cell, Frame};
 use rand::Rng;
@@ -100,7 +100,7 @@ impl Animation for Conway {
 		self.frame = initial;
 	}
 
-	fn update(&mut self, _dt: Duration) -> Frame {
+	fn update(&mut self) -> Frame {
 		if self.last_tick.elapsed().as_millis() <= (1000 / self.tick_rate as u128) {
 			return self.frame.clone();
 		}

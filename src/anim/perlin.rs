@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use cellophane::{Animation, Cell, Frame};
 use crossterm::style::Color;
 use noise::{NoiseFn, Perlin};
@@ -15,7 +17,8 @@ pub struct PerlinNoise {
 	x_delta: f64,
 	y_delta: f64,
 	rows: usize,
-	cols: usize
+	cols: usize,
+	start: Instant
 }
 
 impl PerlinNoise {
@@ -38,7 +41,8 @@ impl PerlinNoise {
 			x_delta,
 			y_delta,
 			rows: 0,
-			cols: 0
+			cols: 0,
+			start: Instant::now()
 		}
 	}
 }
@@ -75,8 +79,8 @@ impl Animation for PerlinNoise {
 		self.cols = cols;
 	}
 
-	fn update(&mut self, dt: std::time::Duration) -> Frame {
-		let seconds = dt.as_secs_f32();
+	fn update(&mut self) -> Frame {
+		let seconds = self.start.elapsed().as_secs_f32();
 		let cells = self.orig.cells();
 
 		for (y, row) in cells.iter().enumerate() {

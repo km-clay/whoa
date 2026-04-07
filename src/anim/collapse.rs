@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::{Duration, Instant}};
+use std::{str::FromStr, time::{Instant}};
 use rand::Rng;
 
 use crate::anim::{Animation, WhoaAnimation, Frame, seeded_frame};
@@ -84,7 +84,7 @@ impl Animation for Collapse {
 	fn init(&mut self, initial: Frame) {
 		self.frame = initial;
 	}
-	fn update(&mut self, _dt: Duration) -> Frame {
+	fn update(&mut self) -> Frame {
 		if self.last_tick.elapsed().as_millis() <= 100 {
 			return self.frame.clone();
 		}

@@ -73,7 +73,7 @@ impl Animation for SlimeMold {
 		self.interm = Frame::with_capacity(cols, rows);
 	}
 
-	fn update(&mut self, _dt: std::time::Duration) -> Frame {
+	fn update(&mut self) -> Frame {
 		if self.last_tick.elapsed().as_millis() < 25 {
 			return self.interm.clone();
 		}

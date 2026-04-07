@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::anim::{Animation, WhoaAnimation, Frame, seeded_frame};
 
 pub struct Cosine {
@@ -6,6 +8,7 @@ pub struct Cosine {
 	speed: f64,
 	rows: usize,
 	cols: usize,
+	start: Instant,
 }
 
 impl Cosine {
@@ -15,7 +18,8 @@ impl Cosine {
 			interm: Frame::default(),
 			speed: 1.0,
 			rows: 0,
-			cols: 0
+			cols: 0,
+			start: Instant::now()
 		}
 	}
 }
@@ -44,9 +48,9 @@ impl Animation for Cosine {
 		self.cols = cols;
 	}
 
-	fn update(&mut self, dt: std::time::Duration) -> Frame {
+	fn update(&mut self) -> Frame {
 		let cells = self.orig.cells();
-		let seconds = dt.as_secs_f64();
+		let seconds = self.start.elapsed().as_secs_f64();
 
 		for col in 0..self.cols {
 			let wave = ((col as f64 / self.cols as f64) * std::f64::consts::PI * 4.0 + (seconds * self.speed)).cos();

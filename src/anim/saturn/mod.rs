@@ -150,8 +150,7 @@ impl Animation for Saturn {
 		self.cols = cols;
 	}
 
-	fn update(&mut self, dt: std::time::Duration) -> Frame {
-		log::debug!("{} - {} = {}", dt.as_secs_f64(), self.last_reroll.elapsed().as_secs_f64(), dt.as_secs_f64() - self.last_reroll.elapsed().as_secs_f64());
+	fn update(&mut self) -> Frame {
 		if self.anim_lifetime > 0.0 && self.last_reroll.elapsed().as_secs_f64() > self.anim_lifetime {
 			log::debug!("re-rolling animation");
 			// re-roll animation

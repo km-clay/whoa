@@ -142,9 +142,9 @@ dependencies = [
 
 [[package]]
 name = "cellophane"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ec78bf97b687dae04bfe40822dd866b145183214746c2ab103e0592e2bc8f40"
+checksum = "f73ac40c0d83a8c0b3b7232065baa02f99e07952112694593c51f1993edb77da"
 dependencies = [
  "bitflags",
  "crossterm",
